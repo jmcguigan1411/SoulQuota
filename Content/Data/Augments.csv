@@ -1,0 +1,61 @@
+Id,Name,Description,Tier,Effect,Value,Value2,Value3,Stat,Stat2,CoopOnly,MaxStacks,Weight
+# Augments (Nov 9 2026): rare, powerful run upgrades, separate from weapons / tomes / items. Offered 1 of 3 (with the AUGMENT card style) at the
+# 1st and 2nd miniboss kill, on objectives with an Augment reward, and at team level AugmentLevel1 / AugmentLevel2 (Tuning). Server effects
+# through USQAugments hooks (kill / hit / cast / stats / tick). Tier: 0 Silver, 1 Gold, 2 Prism (card colour, and the offer tier odds).
+# Effect (Value / Value2 / Value3):
+#   Stat        Stat +Value, Stat2 +Value2 (SQ::ApplyStat names, raw, before SQ::FinalizeStats)
+#   KillBlast   a kill explodes: chance Value, radius Value2 cm, damage Value3
+#   HitSplit    a hit splits into Value3 bolts: chance Value, each bolt Value2 x the hit
+#   KillRefund  a kill takes Value s off the dash cooldown (and the ability cooldowns: USQAugments::GetKillCooldownRefund)
+#   WeaponSlot  +Value weapon slots          TomeSlot  +Value tome slots
+#   Gravestones Value stones orbit at Value2 cm, each hits for Value3 every AugmentOrbitTick s
+#   QuickRevive stand by a downed teammate for Value s to revive them on the spot at Value2 health
+#   AuraStat    you and teammates within Value2 cm get Stat +Value
+#   Execute     non-miniboss enemies left below Value of their health die
+#   Overkill    damage past a kill splashes Value x the excess within Value2 cm
+#   KillHeal    a kill heals Value HP (chance Value2)       KillGold  a kill gives Value2 gold (chance Value)
+#   EliteHunter +Value damage to elites, crowned enemies and minibosses
+#   LowHPDamage +Value damage while below Value2 of max health
+#   CastNova    an ability cast blasts Value2 cm for Value3 damage     CastHaste  a cast gives +Value move speed for Value2 s
+#   HurtNova    being hit blasts Value cm for Value3 damage (at most once per Value2 s)
+#   Pardon +Value Death's Pardons | LevelUps +Value level-up picks now | Rerolls +Value rerolls | ChestNow +Value free chest rolls now
+#   XPBoost     team XP +Value (shared by the crew)
+# Augment damage = Value3 x (1 + AugmentDamagePerLevel x (team level - 1)) x the owner's damage multiplier.
+# CoopOnly 1 = never offered with one reaper. MaxStacks: 1 = once per run (default), 0 = any number. Weight = offer weight inside its tier.
+GraveGrit,Grave Grit,+20% damage.,0,Stat,0.2,,,Damage,,0,0,10
+ThickShroud,Thick Shroud,+25 max health and +6 armor.,0,Stat,25,0.06,,MaxHealth,Armor,0,0,10
+RestlessFeet,Restless Feet,+60 move speed and -0.3s dash cooldown.,0,Stat,60,0.3,,MoveSpeed,DashCooldown,0,0,9
+ClayBellows,Clay Bellows,+50% area.,0,Stat,0.5,,,Area,,0,0,9
+LongReach,Long Reach,+120 pickup range and +6% chance of a bonus soul.,0,Stat,120,0.06,,Magnet,SoulBonus,0,0,8
+SteadyHands,Steady Hands,+20% attack speed.,0,Stat,0.2,,,Cooldown,,0,0,10
+GraveDirt,Grave Dirt Poultice,+1.2 health regen per second.,0,Stat,1.2,,,Regen,,0,0,8
+LuckyBones,Lucky Knucklebones,+0.8 luck and +10% crit chance.,0,Stat,0.8,0.1,,Luck,CritChance,0,0,8
+SpareChange,Spare Change,Kills have a 12% chance to give 3 gold.,0,KillGold,0.12,3,,,,0,1,7
+Leech,Leech Jar,Kills have a 6% chance to heal 2 HP.,0,KillHeal,2,0.06,,,,0,1,8
+SecondOpinion,Second Opinion,+8 level-up rerolls.,0,Rerolls,8,,,,,0,0,6
+BountyHunter,Bounty Hunter,+50% damage to elites and minibosses.,0,EliteHunter,0.5,,,,,0,1,8
+PowderKeg,Powder Keg Souls,Kills have a 20% chance to explode for 35 damage.,1,KillBlast,0.2,220,35,,,0,1,10
+Shrapnel,Shrapnel Shroud,Hits have a 25% chance to split into 2 bolts at 90% damage.,1,HitSplit,0.25,0.9,2,,,0,1,9
+RuthlessRhythm,Ruthless Rhythm,Kills take 0.25s off your dash and ability cooldowns (at most 1s every second).,1,KillRefund,0.25,,,,,0,1,9
+ExtraHolster,Extra Holster,+1 weapon slot and 4 level-up picks to fill it.,1,WeaponSlot,1,4,,,,0,1,7
+ExtraBookshelf,Extra Bookshelf,+1 tome slot and a level-up pick to fill it.,1,TomeSlot,1,1,,,,0,1,7
+OrbitingStones,Orbiting Gravestones,3 gravestones orbit you and crush what they touch (30 damage).,1,Gravestones,3,260,30,,,0,1,9
+ReapersMercy,Reaper's Mercy,Enemies left below 25% health die.,1,Execute,0.25,,,,,0,1,8
+Overkill,Overkill,Damage past a kill splashes 200% of the excess nearby.,1,Overkill,2,200,,,,0,1,8
+SpellEcho,Spell Echo,Casting an ability blasts everything within 5m of you for 300 damage.,0,CastNova,0,500,300,,,0,1,8
+TailwindRite,Tailwind Rite,Casting an ability gives +350 move speed for 3s.,0,CastHaste,350,3,,,,0,1,6
+SpiteBloom,Spite Bloom,Being hit blasts everything near you for 80 damage (every 2s at most).,1,HurtNova,400,2,80,,,0,1,7
+CrashCourse,Crash Course,Take 3 level-up picks right now.,1,LevelUps,3,,,,,0,0,6
+PardonSlip,Death's Pardon,Get back up once: a free revive after 3s (at most 2 banked).,2,Pardon,1,,,,,0,1,5
+GlassEdge,Glass Edge,+45% damage but -30 max health.,1,Stat,0.45,-30,,Damage,MaxHealth,0,1,7
+LastStand,Last Stand,+120% damage while below 50% health.,0,LowHPDamage,1.2,0.5,,,,0,1,7
+PocketChest,Pocket Chest,Open 4 free chests right now.,0,ChestNow,4,,,,,0,0,6
+Volley,Volley,+2 projectiles and +10% damage.,0,Stat,2,0.1,,Projectiles,Damage,0,1,8
+ChainReaction,Chain Reaction,Kills have a 20% chance to explode for 30 damage. An explosion's kills can explode once more.,2,KillBlast,0.2,300,30,,,0,1,8
+TwinStones,Gravestone Ring,6 gravestones orbit you wide and crush what they touch (22 damage).,2,Gravestones,6,340,22,,,0,1,7
+MidasShroud,Midas Shroud,Kills have a 30% chance to give 5 gold.,1,KillGold,0.3,5,,,,0,1,6
+FuneralChoir,Funeral Choir,You and teammates within 9m deal +20% damage.,2,AuraStat,0.2,900,,Damage,,1,1,8
+SharedPlot,Shared Plot,You and teammates within 9m get +25 armor.,2,AuraStat,0.25,900,,Armor,,1,1,7
+WakeKeeper,Wake Keeper,You and teammates within 9m regenerate +1.5 health per second.,2,AuraStat,1.5,900,,Regen,,1,1,7
+SwiftRites,Swift Last Rites,Stand by a downed teammate for 1.5s to revive them on the spot at half health.,1,QuickRevive,1.5,0.5,,,,1,1,8
+StudyGroup,Study Group,The whole crew gains 30% more XP.,2,XPBoost,0.3,,,,,0,1,6

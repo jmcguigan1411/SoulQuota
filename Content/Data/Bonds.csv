@@ -1,0 +1,14 @@
+Id,Name,RelicA,RelicB,Stat,Value,Description
+# Two reapers within BondRange, one holding RelicA and the other RelicB (a TOME or an ITEM id from Upgrades.csv): both get the stat. Stat names = Upgrades.csv Stat column. Stats are raw: caps and curves (armor, luck...) still apply.
+GrimRhythm,Grim Rhythm,Whetstone,Hourglass,Cooldown,0.12,Both: weapons cool down 12% faster
+Ossified,Ossified,BonePlating,ExtraRibs,Armor,0.1,Both take 10% less damage
+PackMules,Pack Mules,MothLure,Sack,CarryCap,20,Both carry +20 souls
+ScatteredAshes,Scattered Ashes,GraveDust,SplitSoul,Area,0.15,Both get +15% weapon area
+Pallbearers,Pallbearers,FuneralShoes,CharonFeather,MoveSpeed,70,Both get +70 move speed
+Undying,Undying,Embalming,VampireFang,Regen,1.2,Both regenerate +1.2 HP/s
+Accountants,The Accountants,Ledger,GoldenKey,BankSpeed,0.5,Both bank 50% faster
+SpikedCoffin,Spiked Coffin,ThornedShroud,BonePlating,Thorns,15,Both deal +15 thorns damage
+SecondOpinion,Second Opinion,Monocle,RedInk,CritChance,0.1,Both get +10% crit chance
+BeginnersLuck,Beginner's Luck,RabbitFoot,Ledger,Luck,0.5,Both get +50% luck (rarer cards)
+TeaAndSympathy,Tea and Sympathy,TeaUrn,ExtraRibs,AllyRegen,1,Both heal nearby teammates +1 HP/s
+WorkshopOvertime,Assembly Line,SpareParts,EmbalmerPatience,TurretBonus,1,Both get +1 turret per turret weapon

@@ -1,0 +1,20 @@
+Id,Name,Description,Biome,Duration,Objectives,Boss,Minibosses,MinibossAt,HealthMult,DamageMult,SpawnMult,BossHealthMult,GoldMult,HardHealthMult,HardDamageMult,HardSpawnMult,HardBossHealthMult,HardGoldMult,Unlock,ClearGold,FirstClearGold,HardFirstClearGold,Difficulty
+# Missions (Nov 9 2026 missions rebuild). One row per map, one map per Biomes.csv biome. A mission is ONE stage of Duration seconds
+# (release length; the test knob Tuning NightSeconds / BalanceNightSeconds scales it like the old nights). The stage runs as 3 ACTS
+# (Duration / 3 each): the act is the old "night" index for the horde (enemy mix columns, HP step, damage step, gold growth, Timeline.csv Nights).
+# Nov 12 2026 lantern trail (Docs/LanternTrail.md): banking is no longer an objective row - every stage runs the lantern trail beside its objectives
+#   (Tuning Lantern* keys: stages, quotas, deadlines, rewards). BankSouls rows still work if one is added back.
+# Objectives: '|' list of Type:Count:Reward[:Enemy], in order. Types: BankSouls (Count = souls at 4 players; solo 50%), DestroySpawners (nests),
+#   DefendPoint (seconds to fill the meter), Escort (Count unused, the cart follows ASQArena::GetEscortPath), CollectItems (soul urns),
+#   SurviveWave (seconds), KillElite (crowned elites). Reward: Gold | Chest | Augment | XP. Enemy (optional) = the pressure / nest / elite enemy.
+# Minibosses: '|' list of Enemy:HealthMult:DamageMult:Name, spawned at the MinibossAt shares of the stage ('|' list). The 1st and 2nd miniboss
+#   kills offer every reaper an augment; the last one also drops a free chest per reaper.
+# Difficulty multipliers ride on top of the act ramp: HealthMult (horde HP), DamageMult (every enemy hit), SpawnMult (horde spawn rate),
+#   BossHealthMult (Bosses.csv Health), GoldMult (gold dropped and banked). Hard* multiply on top in Hard mode (unlocked by beating the map).
+# Unlock: blank = open from the start, Mission:<Id> = beat that mission first. ClearGold = banked on every win, FirstClearGold on the first
+#   win, HardFirstClearGold on the first Hard win. Difficulty = skulls shown on the mission card (1-5).
+# Nov 12 2026 three-map remaster (Docs/Maps.md): 3 maps (Graveyard, Drowned Harbour, Clocktower); Plague Carnival and Frozen Monastery retired.
+# Nov 12 2026 market audit (Docs/MarketAudit.md): stages 960-1200 s -> 600-840 s and 5-6 objectives -> 3-5 (first map 3); the genre norm is a 10-15 minute run.
+Graveyard,The Overflowing Graveyard,Where every reaping begins. Bank the backlog and close the nests before the Sexton wakes.,Graveyard,600,DestroySpawners:3:Augment:Shambler|KillElite:2:Chest:Brute,Sexton,Brute:5:1.3:The Overdue Account|Brute:7:1.5:The Second Notice,0.35|0.68,1.1,0.95,0.95,0.26,0.8,1.7,3.2,1.2,1.11,1.5,,100,200,1000,1
+DrownedHarbour,The Drowned Harbour,Walk the drowned hearse down the boardwalks. Work the flats at low tide and hold the quays when it turns.,DrownedHarbour,660,Escort:1:Augment:Lurcher|SurviveWave:45:Chest:BoneHound|DestroySpawners:4:XP:Rotter,DrownedKing,Brute:6:1.4:The Bailiff of Bones|Lurcher:30:2:The Repossessor,0.35|0.68,1.05,1.05,1.05,0.41,1,1.8,3.2,1.2,1.26,1.5,Mission:Graveyard,175,350,1500,2
+Clocktower,The Clocktower,The Merchant's lair on the hill. Climb the lantern trail and jump the clock hands. Stop the clock.,Clocktower,720,DefendPoint:50:Gold:Rotter|DestroySpawners:4:Augment:FreshArrival|KillElite:3:Chest:Brute,Merchant,Brute:8:1.6:The Late Fee|Brute:10:1.8:The Last Reminder,0.33|0.66,1.25,1.2,1.1,0.44,1.2,1.8,3.2,1.2,1.22,1.5,Mission:DrownedHarbour,450,1300,3500,3

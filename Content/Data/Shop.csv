@@ -1,0 +1,3 @@
+Id,Name,Cost,Effect,Value,Description
+# RETIRED (Nov 9 2026 missions): the between-nights Death's Office is gone. Death's Office is now the permanent upgrade shop in the main menu
+# (MetaUpgrades.csv). Death's Pardon moved to MetaUpgrades.csv (Pardon) and Augments.csv (PardonSlip). Left empty so old code paths find no items.

@@ -1,0 +1,62 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.8",
+	"Category": "",
+	"Description": "Soul Quota - co-op 3D bullet heaven",
+	"Modules": [
+		{
+			"Name": "SoulQuota",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"AdditionalDependencies": [
+				"Engine"
+			]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "EnhancedInput",
+			"Enabled": true
+		},
+		{
+			"Name": "OnlineSubsystem",
+			"Enabled": true
+		},
+		{
+			"Name": "OnlineSubsystemNull",
+			"Enabled": true
+		},
+		{
+			"Name": "OnlineSubsystemUtils",
+			"Enabled": true
+		},
+		{
+			"Name": "OnlineSubsystemSteam",
+			"Enabled": true
+		},
+		{
+			"Name": "SteamSockets",
+			"Enabled": true
+		},
+		{
+			"Name": "PythonScriptPlugin",
+			"Enabled": true
+		},
+		{
+			"Name": "EditorScriptingUtilities",
+			"Enabled": true
+		},
+		{
+			"Name": "ModelContextProtocol",
+			"Enabled": true
+		},
+		{
+			"Name": "AllToolsets",
+			"Enabled": true
+		},
+		{
+			"Name": "ProceduralMeshComponent",
+			"Enabled": true
+		}
+	]
+}

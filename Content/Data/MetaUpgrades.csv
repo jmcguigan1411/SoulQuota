@@ -1,0 +1,23 @@
+Id,Name,Description,Stat,PerRank,MaxRank,BaseCost,CostGrowth,Order
+# Permanent upgrades bought in Death's Office (main menu) with banked gold (Nov 9 2026). Saved per PC in SQSave (MetaRanks).
+# Applied at spawn through the stat pipeline: raw stats -> SQ::FinalizeStats (USQAugments::ModifyStats inside ASQCharacter::RecomputeStats).
+# Stat: any SQ::ApplyStat name (raw, PerRank x rank), or a special line:
+#   XPGain (team XP x(1 + crew average)), GoldGain (your gold x(1 + this)), ReviveSeconds (field revive: stand by a downed teammate this many
+#   seconds; rank 1 = PerRank seconds, each rank after takes 1 s off, min 3), Rerolls (+level-up rerolls per run), StartLevels (free level-up
+#   picks at the start of a mission), Pardon (Death's Pardons at the start of a mission).
+# Cost of the next rank = BaseCost x CostGrowth ^ rank, rounded to 5 (rank 0 -> 1 costs BaseCost). Order = position in the menu list.
+# Nov 12 2026 market audit: first ranks cost 40% of before (growth 2 -> 3.3: later ranks cost more so the office still lasts) so the first purchase lands after run 1.
+Damage,Sharpened Scythe,+4% damage per rank.,Damage,0.04,4,360,3.3,1
+Health,Thicker Bones,+9 max health per rank.,MaxHealth,9,4,320,3.3,2
+Regen,Clay Mending,+0.12 health regen per second per rank.,Regen,0.12,4,460,3.3,3
+Speed,Quick Feet,+15 move speed per rank.,MoveSpeed,15,4,360,3.3,4
+Pickup,Long Arms,+30 pickup range per rank.,Magnet,30,4,260,3.3,5
+AttackSpeed,Brisk Rhythm,+2.5% attack speed per rank.,Cooldown,0.025,4,460,3.3,6
+Armor,Hardened Shroud,+2 armor per rank.,Armor,0.02,4,520,3.3,7
+Luck,Lucky Charm,+0.04 luck per rank.,Luck,0.04,4,560,3.3,8
+XPGain,Night School,+2.5% team XP per rank.,XPGain,0.025,4,460,3.3,9
+GoldGain,Golden Touch,+5% gold per rank.,GoldGain,0.05,4,340,3.3,10
+Revive,Field Medic,Revive a downed teammate by standing next to them: 8 s at rank 1 and 1 s faster per rank.,ReviveSeconds,8,5,900,1.42,11
+Rerolls,Second Opinion,+1 level-up reroll per run per rank.,Rerolls,1,3,1000,1.6,12
+HeadStart,Head Start,Start every mission with 1 free level-up pick per rank.,StartLevels,1,1,2000,2,13
+Pardon,Death's Pardon,Start every mission with a free revive.,Pardon,1,1,9000,1,14

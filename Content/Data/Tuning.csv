@@ -1,0 +1,688 @@
+Key,Value,Notes
+# --- Run structure ---
+NightSeconds,360,Nov 12 2026 market audit (Docs/MarketAudit.md): was 90 (a 4-minute test stage). 360 = play the release length (Missions.csv Duration; 10-14 min stages). Lower it again only for quick visual tests
+FinalCallSeconds,15,Last seconds of a night where banking pays FinalCallMultiplier
+FinalCallMultiplier,2,
+ShopSeconds,30,UNUSED since Nov 9 missions (no between-nights office)
+EndScreenSeconds,30,Nov 12 2026 flow pass: 8 -> 30: the end screen now has RETRY / PLAY AGAIN (ENTER) and CHANGE REAPER (C) so nobody waits; this is only the idle fallback back to the lobby
+StartDelay,3,Seconds before night 1 starts once someone joins
+# --- Quota ---
+QuotaNight1,300,UNUSED since Nov 9 missions (Bank Souls objective counts live in Missions.csv)
+QuotaNight2,500,
+QuotaNight3,800,
+SoloQuotaMult,0.5,Bank Souls objective: solo needs 50% of the Missions.csv count. Scales up to 100% at 4 players
+QuotaMetBonus,25,UNUSED since Nov 9 missions
+# --- Arena / lantern ---
+LanternRadius,350,
+BankSeconds,0.7,Channel time to bank your carried souls (Nov 12 2026 lantern trail: 1.5 -> 0.7 so a visit to the lit lantern is a quick stop not a camp)
+DiggerSteal,15,Banked souls a Gravedigger steals if it reaches the lantern
+# --- Player ---
+HitDropFraction,0.25,Share of carried souls dropped when hit
+DashSpeed,1800,
+DownedSpeed,160,Speed while you are a rolling skull
+ReviveFraction,0.5,Health after a revive
+PardonSeconds,3,Delay before Death's Pardon revives you
+MouseSensitivity,0.35,
+# --- Horde ---
+MaxEnemies,800,Hard cap (network array limit is 4096)
+MaxPickups,700,
+SpawnRateStart,1.2,Nov 12 2026 market audit (Docs/MarketAudit.md): 0.6 -> 1.2 enemies per second at the stage start (solo): the model showed spawn at 31% of kill capacity in minute 0
+SpawnRatePeak,8,Enemies per second at the end of each act (solo). Reap core early curve: 22 -> 8
+PlayerSpawnRateBonus,0.5,+50% spawn rate (and on-screen cap) per extra player (reap core: 0.65 -> 0.5)
+BossSpawnRateMult,0.35,Horde spawn rate during the boss fight
+SpawnRadiusMin,2200,
+SpawnRadiusMax,3000,
+SoulLifetime,90,Seconds a dropped soul lasts on the ground
+PickupRadius,90,
+PullSpeed,1300,
+NetRate,15,Horde snapshots per second
+# --- Levelling ---
+XPBase,1,Reap core: 8 -> 1 (XP to level 2 = XPBase + XPGrowth = 10 = ten 1-XP kills)
+XPGrowth,9,XP to next level = XPBase + XPGrowth * level (reap core: 15 -> 9 with the lower spawn curve; model section 26)
+XPPerPlayer,0.5,Co-op: XP to next level x(1 + this x extra players) - matches PlayerSpawnRateBonus so each reaper levels like a solo run
+BossXP,40,
+# --- Debug ---
+AllowCheats,1,Console cheats (SQSpawn / SQSouls / SQSkip ...) 1 = on
+# --- Co-op bonds / endless / meta ---
+BondRange,900,Allies must be this close for a Bond to be active
+EndlessQuotaGrowth,1.35,Quota multiplier per endless night after night 3
+PayPerNight,60,UNUSED since Nov 9 missions (meta currency = banked gold: BankShareWin / BankShareLoss)
+KillsPerPay,40,UNUSED since Nov 9 missions
+PayWinBonus,150,UNUSED since Nov 9 missions (Missions.csv ClearGold / FirstClearGold)
+UnlockAllReapers,1,1 = ignore unlock costs (testing)
+UnlockAllBiomes,1,1 = ignore mission unlocks and Hard mode locks (testing)
+# --- Audio ---
+MasterVolume,0.8,
+MusicVolume,0.45,
+# --- Art (imported KayKit models; all optional, primitives are the fallback) ---
+ArtYawOffset,-90,Turn imported characters so they face their movement (try 0 / 90 / 180 if they walk sideways)
+ReaperArtHeight,190,Reaper model height in cm
+PropScale,1.6,Multiplier on prop size (graves / trees / crypts)
+SkinnedEnemyPool,220,Max animated (skinned) enemies near your reaper; farther ones draw as flipbook impostors (same art; 4 static walk frames each)
+SkinnedEnemyRadius,4200,Enemies closer than this to your reaper are skinned + animated (impostors beyond; the hand-off keeps the same pose phase)
+FogDensity,0.008,Height fog thickness (map default was 0.035 = everything vanished); starts at FogStartDistance
+FogBrightness,1.6,Multiplier on the biome fog colour
+VolumetricFog,0,1 = volumetric fog (heavier GPU cost)
+# --- Reaper animation (USQAnimInstance) ---
+AnimWalkSpeed,250,Speed (cm/s) where the walk cycle plays at 1x
+AnimRunSpeed,550,Speed (cm/s) where the run cycle plays at 1x and is fully blended in
+AnimLeanDegrees,12,Max body lean into acceleration and turns
+AnimActionRateLimit,3,Max weapon attack animations sent over the network per reaper per second
+EnemyAttackAnimRange,180,Animated enemies swing (attack loop) when a reaper is this close (cm)
+EnemyHitFlash,3,Emissive Glow of the white flash on an animated enemy when it is hit
+SparkPool,600,Pooled spark particles (hit sparks / soul bursts / spawn dust)
+# --- Terrain (deterministic per biome; every machine builds the same ground) ---
+TerrainCell,100,Height-grid cell size in cm (140m arena / 100 = 140x140 cells)
+TerrainPlateaus,4,Raised flat-topped plateaus with ramp sides (0-8)
+TerrainPlateauHeight,550,Average plateau height in cm (each is 0.6x-1.3x this)
+TerrainHillHeight,300,Max rolling-hill height in cm
+TerrainHills,2,Number of rolling hills
+TerrainBasins,0,Number of shallow sunken basins (0 since the skate bowls replaced them)
+TerrainBasinDepth,150,Basin depth in cm
+TerrainRidges,2,Bridges between neighbouring plateaus (0-4; each plateau at most one); Biomes.csv ParkGaps overrides. Each gets a gap jump (ParkGapLength)
+TerrainEdgeRise,200,How far the ground rises into the walls (cm)
+TerrainPlazaRadius,1800,Flat central plaza radius at height 0 (lantern + spawns)
+TerrainMaxSlope,30,Max step angle between grid neighbours (deg); worst triangle stays under the 44.76 walkable limit
+TerrainPropMaxSlope,20,Blocking props are never placed on ground steeper than this (deg)
+JumpPadCount,6,Glowing jump pads at the foot of plateaus
+JumpPadLaunch,1300,Jump pad upward launch speed (cm/s); forward speed is solved to land on the plateau top
+# --- Skate park (Nov 2026; ASQArena; Biomes.csv Park* columns override per biome) ---
+ParkLaneSlope,20,Slide lane slope (deg). Slides gain speed above ~14 deg (SlideSlopeGravity 2.2 vs SlideFriction 500)
+ParkLaneWidth,600,Slide lane bed width (cm)
+ParkLaneAngle,65,Lane starts this many degrees round the plateau rim from the plaza-facing side (the jump pad side)
+ParkLaneTable,520,Flat take-off table half way down each lane (cm); the lane kicker sits at its end
+ParkGapLength,550,Gap jump length in the middle of each plateau bridge (cm; 0 = solid bridges)
+ParkBowls,2,Skate bowls (0-4; one per plateau sector without a bridge)
+ParkBowlDepth,260,Bowl depth (cm)
+ParkBowlFloor,420,Bowl flat floor radius (cm)
+ParkBowlWall,800,Bowl wall width (cm); walls steepen to ~30 deg at the lip
+ParkBanks,3,Quarter-pipe banks along the walls (0-4)
+ParkBankHeight,300,Bank height at the wall (cm)
+ParkBankWidth,1100,How far a bank reaches in from the wall (cm)
+ParkBankLength,4200,Bank length along the wall (cm)
+ParkWaveAmp,55,Pump-track wave height on the paths (cm; 0 = off)
+ParkWaveLength,900,Pump-track wave length (cm)
+ParkPieces,14,Bone park pieces placed (Biomes.csv ParkPieceCount overrides)
+ParkMeshYawOffset,0,Yaw added to the SM_Park_* meshes if the art does not ride along +X (entry at -X)
+ParkPopMinSpeed,550,Kicker / quarter launch triggers fire only above this speed along the piece (cm/s)
+ParkKickerPop,0.55,Kicker lip pop: upward speed = this x run speed
+ParkKickerPopMax,750,Kicker lip pop cap (cm/s)
+ParkQuarterPop,0.85,Quarter pipe vert air: upward speed = this x run speed
+ParkQuarterPopMax,1100,Quarter pipe vert air cap (cm/s; >= JumpPadSafeLaunchZ so the landing is safe)
+ParkQuarterReturn,0.6,Quarter pipe: speed thrown back out the way you came (x run speed)
+# --- Map look (arena remaster v2; applied at runtime every time the arena builds) ---
+MoonIntensity,3,Moonlight (directional light) intensity; colour = Biomes.csv MoonColor
+SkyLightIntensity,1.6,Ambient sky light; tinted by Biomes.csv SkyColor (teal shadows)
+ExposureBias,11,Exposure compensation - only applied when the map's post process uses manual exposure (map default 11). Raise if the arena is too dark
+BloomIntensity,0.8,
+VignetteIntensity,0.4,
+ColorSaturation,1.12,
+ColorContrast,1.06,
+GradeShadowTeal,0.09,How far shadows lean teal
+GradeHighlightWarm,0.05,How far highlights lean warm
+FogStartDistance,1800,Fog only starts this far from the camera (keeps the playfield crisp)
+FogHeightFalloff,0.25,
+MoonDistance,45000,The moon disc's distance (cm)
+MoonSize,2600,The moon disc's radius (cm)
+MoonGlow,4,Moon disc emissive strength
+PathWidth,340,Dirt path width (cm) from the plaza to every jump pad / plateau ramp
+MaxArenaLights,14,Point lights the arena may add (jump pads first then lamps). The lantern makes 12. No shadows
+MapLightIntensity,9000,Lamp post light intensity
+MapLightRadius,1300,Lamp post light radius (cm)
+LanternLightIntensity,30000,Central lantern light intensity
+LanternShadows,0,1 = the lantern light casts shadows (6 shadow views of the whole horde: expensive)
+DecorScale,1.25,Small scatter (bones / candles / pumpkins) size multiplier on top of PropScale
+DecorCullDistance,9000,Small scatter / rocks / tufts disappear beyond this camera distance (cm)
+GrassTufts,1800,Chunky grass tufts (3 blades each)
+RimStones,8,Stones / stone props around each plateau rim (visual only; skipped on lane mouths and bridges)
+CliffRocks,0,Small rocks scattered down the plateau ramps (total; 0 = the ramps are slide surfaces now)
+BackdropCount,170,Dead-tree silhouettes outside the walls
+RerollsPerRun,2,Level-up rerolls each player gets per run (Q / gamepad Y)
+PickPauseMaxSeconds,25,Longest the level-up pause holds (real seconds) before anyone still choosing gets card 1
+SkipHealFraction,0.15,Skipping a level-up heals this fraction of max HP
+RarityRare,27,Base % chance a level-up card is Rare (Common is what's left of 100). Luck raises Rare x(1+0.6L)
+RarityEpic,10,Base % chance a card is Epic. Luck raises it x(1+1.0L)
+RarityLegendary,3,Base % chance a card is Legendary (evolutions are always Legendary). Luck raises it x(1+1.5L)
+# --- Reaper kits (Nov 9 kits pass; Docs/Kits.md; Content/Data/Kits.csv has every passive / E / R number; USQAbilityComponent) ---
+QuickCast,1,1 = E / R cast on key press at the cursor. 0 = hold to aim (local indicator under the cursor) and cast on release
+AbilityUnlockE,3,Team level that unlocks every reaper's E
+AbilityUnlockR,6,Team level that unlocks every reaper's R
+AbilityDamagePerLevel,0.03,Ability hits x (1 + this x (team level - 1)) on top of the damage stat and crits (model: Scripts/balance_model.py section 12)
+AbilityHasteExp,0.5,Ability cooldown x CooldownMult ^ this (attack speed helps abilities at half strength; CooldownMult is floored at CooldownFloor)
+AbilityAreaExp,0.5,Ability radius x Area ^ this
+AbilityKnockback,1600,Knockback speed of ability effects (cm/s; decays like the slide shove)
+AbilityPullStrength,1100,Pull speed of ability effects toward the centre (cm/s)
+AbilityKnockMaxRadius,75,Only enemies with a body radius up to this are knocked / pulled (Brutes and bosses stand firm)
+AbilityVolleySpeed,1900,Projectile speed of Volley abilities
+AbilityTotemMax,8,Most summoned posts (R totems + passive sentries / ghosts) one reaper keeps at once
+AbilityCooldownSlack,0.2,Server accepts a cast this many seconds before the cooldown ends (latency)
+AbilityMinCastGap,0.25,Owning client: min seconds between two cast requests
+AbilityBotInterval,0.5,Bots think about casting this often
+AbilityBotDensityE,6,Bots cast E when this many enemies are in reach (or a boss is close)
+AbilityBotDensityR,18,Bots cast R when this many enemies are in reach (or a boss is close / a teammate is down for revive Rs)
+LookoutMarkSouls,2,"Extra souls dropped by an enemy marked by any Mark effect (Lookout passive, Spotting Shot, Flare Toss, Bankruptcy Notice)"
+# --- Reaper ability animations (passive moments play Kits.csv PassiveAnim; E / R play <Slot>_Anim) ---
+AbilityAnimMinInterval,1.5,Min seconds between two passive ability animations of one reaper (one unreliable multicast each; E / R casts always play)
+# --- Balance pass (Docs/Balance.md; model: Scripts/balance_model.py) ---
+BalanceNightSeconds,360,Night length the HP and price numbers are tuned for (GameDesign: 6 min). Shorter test nights scale HealthPerNight / boss HP / shop prices by NightSeconds / this
+EnemyHealthPerMinute,0.1,Enemy HP x(1 + this x minutes into the night). A boss fight counts as midnight
+EnemyHealthPerPlayer,0.3,"Enemy HP x(1 + this x extra players) (reap core 0.2 -> 0.3 with PlayerSpawnRateBonus 0.5: 4 players = 2.5x spawns x 1.9x HP = 4.75x solo, as before; remake pass 0.35 -> 0.2: 4 players = 2.95x spawns x 1.6x HP = 4.7x the HP inflow of solo, about the same per reaper). Bosses use BossHealthPerPlayer"
+EnemyDamagePerNight,0.3,Enemy hit damage x(1 + this x night index) (night 1 = x1)
+EnemyDamagePerMinute,0.03,Enemy hit damage x(1 + this x minutes into the night)
+StageDamageSmoothing,1,Remake balance pass: enemy hits ease between act starts like the horde HP (no +EnemyDamagePerNight jump at an act change). 0 = off
+ShopPricePerBuy,0.75,Death's Office: every purchase this visit raises all prices by this x base cost
+ShopPricePerNight,0.5,Death's Office: prices x(1 + this x night index)
+ShopPricePerPlayer,0.75,Death's Office: prices x(1 + this x extra players) (shared pot; every item helps every reaper)
+# --- Reaper / FX agent keys ---
+WeaponFxPool,1000,Pooled weapon trails / tracers / slabs / rings
+DamageNumberCap,60,Max floating damage numbers on screen
+DamageNumberHuge,300,Hits at or above this draw as HUGE numbers (late hits are ~100-300; big crits / evolutions reach 300-600)
+DamageNumbersNet,1,1 = damage numbers are sent to every machine; 0 = off
+AuraGestureInterval,3.5,Always-on weapons (auras / orbits) play an attack gesture at most this often (s)
+# --- Enemy / boss agent keys ---
+EnemyWindupSlack,40,How far past its reach (cm) an enemy wind-up still connects
+EnemyChargeRange,750,Charge-gait enemies start a dash within this range (cm)
+EnemyChargeSpeedMult,3,Dash speed x enemy speed
+EnemyChargeTime,0.6,Dash duration (s)
+EnemyChargeRecover,0.8,Dizzy time after a dash (s)
+BomberRadius,240,Bomber explosion radius (cm)
+EnemyOneShotCap,24,Max animated enemies playing a one-shot (wind-up / hit / spawn) at once
+SkinnedRiderPool,24,Max animated riders on stacked enemies (Tower)
+BossHealthPerPlayer,1,Boss HP x(1 + this x extra players)
+BossMissionDamageShare,0.5,Boss hits x (mission / Hard / clause enemy damage multiplier) ^ this (0.5 = square root; 0 = bosses ignore it)
+BossAbilityGap,1.4,Seconds between boss abilities
+BossRoarSeconds,2,Boss roar (phase change) length
+BossElementSeconds,30,Final boss element swap interval
+BossPylonRing,1300,Pylon ring radius around the boss arena (cm)
+BossPylonRange,260,Stand this close to a pylon to hold it (cm)
+BossPylonHoldSeconds,2.5,Hold time per pylon
+BossShieldSeconds,25,Boss shield (90% damage cut) lasts this long unless the pylons are held
+BossStaggerSeconds,4,Stagger after the shield breaks (boss takes 1.5x damage)
+BossVortexPull,260,Vortex pull speed (cm/s)
+BossMarkSpeed,480,Death-mark chase speed (cm/s)
+BossMarkRadius,300,Death-mark blast radius (cm)
+# --- v0.9 safety caps ---
+SpawnMinPlayerDistance,1500,Enemies never spawn closer than this to any reaper (cm)
+SummonMinPlayerDistance,350,Boss summons keep this gap from every reaper (cm)
+MaxProjectiles,1200,Hard cap on live projectiles
+WeaponFxPerSecond,24,Max weapon effect multicasts per reaper per second
+AllowClientCheats,0,1 = clients may also use console cheats (host-only when 0)
+MaxClientUnlockCost,-1,A remote client's locked reaper is trusted up to this unlock cost (-1 = trust all)
+# --- Body blocking (Nov 7: can't run through the horde) ---
+BodyBlockEnabled,1,1 = reapers are blocked by enemy bodies and the horde crowds around them (0 = old pass-through)
+BodyBlockPlayerRadius,40,Reaper body radius (cm) for blocking; enemies stop at their Radius + this
+BodyBlockSkin,6,Extra contact margin (cm): walking into a body stops just before it touches
+BodyBlockHeightMult,0.8,A reaper's feet must be higher than enemy art height x this to jump over it
+BodyBlockPushStiffness,10,Overlap push-out speed per cm of overlap (cm/s per cm)
+BodyBlockMaxPush,350,Cap on the overlap push-out speed (cm/s): a nudge - never a teleport
+BodyBlockGraceRange,120,Server: a remote reaper this close (cm) to a body skips movement corrections
+BodyBlockGraceSeconds,0.5,Server: ...and keeps skipping them this long after the last contact
+DashPassSeconds,0.3,The dash passes through enemy bodies for this long (escape when pinned)
+# --- Flyers ---
+WraithPhaseInterval,3.5,Seconds between a Wraith's phase-blinks (x0.8-1.25 random)
+GravebatSwoopCooldown,2.8,Seconds between a Gravebat's swoops (x0.8-1.2 random)
+# --- Solo / co-op death ---
+SoloStartPardons,0,Free Death's Pardons a solo reaper starts a run with (was 1; Jack Nov 7: solo down = dead). Bought Pardons still work
+# --- Co-op level-up strip (never freezes with 2+ humans) ---
+PickAutoSeconds,20,Co-op: a card set left untouched this long takes its rarest card
+PickBubbleSeconds,1.5,Co-op: protective bubble while the strip is open - per new card set (max 1.5)
+PickBubbleCooldown,3,Co-op: at most one bubble every this many seconds (chained picks can't stack it)
+PickStripEnemyRange,600,Co-op: the strip opens by itself when no enemy is this close (cm); otherwise it waits as a pill
+# --- Economy: gold + chests (Nov 7 economy pass; Docs/Balance.md "Economy"; model: Scripts/balance_model.py) ---
+GoldDropChance,0.08,Chance a normal kill drops a gold coin (elites always drop a pile). Reap core 0.04 -> 0.08: the early curve halves the kills
+GoldPerXP,1,Coin value = enemy XP x this x (1 + GoldPerNight x night index) x gold multipliers (Difficulty / modifiers)
+GoldPerNight,1.5,Coin value growth per night (night 1 = x1)
+GoldLifetime,60,Seconds a gold coin lasts on the ground
+EliteGold,8,Gold pile from an elite (x night growth); crowned elites drop CrownedGoldMult x this (reap core 4 -> 8)
+CrownedGoldMult,3,
+MinibossGold,20,Gold from a timeline miniboss to EVERY reaper (x night growth)
+BossGold,30,Gold to EVERY reaper when a boss falls (x night growth)
+ChestBasePrice,30,Chest price = ChestBasePrice x (1 + ChestPriceK x chests you opened this run) ^ ChestPriceExp x NightSeconds/BalanceNightSeconds (per reaper)
+ChestPriceK,1,
+ChestPriceExp,1.4,
+ChestPriceCap,1500,Highest chest price (before the test-night scale)
+ChestsPerNight,10,Paid chests placed around the map at each night start (solo)
+ChestsPerExtraPlayer,5,More chests per extra reaper (every reaper has their own purse)
+ChestsMax,36,Unopened chests on the map at once (old ones stay between nights)
+ChestUseRange,320,Press F (interact) within this range (cm) to open a chest
+ChestLuckBonus,0.25,Extra luck on a chest's rarity roll (on top of the opener's Luck)
+CrownedChance,0.3,Share of elite spawns that wear a crown (more HP; a free-chest chance)
+CrownedHealthMult,1.5,
+CrownedChestChance,0.15,Chance a crowned elite drops a free chest
+DifficultyHealthShare,0.5,Enemy HP x(1 + this x Difficulty); spawn rate and gold x(1 + Difficulty)
+GoldShareCoop,1,1 = a coin anyone picks up pays EVERY reaper value / (1 + PlayerSpawnRateBonus x extra reapers) (shared purse); 0 = finder keeps it
+# --- Run timeline: Appointment Bell (boss portal) + Final Swarm (Timeline.csv has the beats) ---
+PortalMinProgress,0.5,The Appointment Bell can be rung from this share of the night (0.5 = 10:30 PM)
+PortalRingSeconds,2,Hold position this long after pressing F (interact) to ring the bell (leaving the circle cancels)
+PortalUseRange,420,Press F (interact) within this range (cm) of the bell
+PortalMinLanternDist,2200,The bell is placed at least this far from the lantern
+FinalSwarmRampPerMinute,0.5,Final Swarm spawn rate x(1 + this x minutes after midnight)
+FinalSwarmHealthPerMinute,0.3,Final Swarm enemy HP x(1 + this x minutes after midnight)
+FinalSwarmDamagePerMinute,0.15,Final Swarm enemy damage x(1 + this x minutes after midnight)
+BossFastSeconds,120,Quest: a boss beaten within this many seconds of the bell counts as fast
+BossBlitzSeconds,60,
+FastWinMinutes,14,Quest: a mission win under this many minutes (x NightSeconds/BalanceNightSeconds on test lengths)
+# --- Quests / challenge modifiers (Quests.csv, Modifiers.csv) ---
+QuestFlushSeconds,2,Server sends quest progress to each player this often
+ModifierCoinCap,3,Most a run's modifiers can multiply the banked gold by
+UnlockAllItems,1,1 = quest-locked weapons / relics are always in the pool (testing)
+# --- Movement tech: slide / slide-jump / bunny hop / fast-fall / fall damage (USQMovementComponent; client-predicted) ---
+SlideEnterSpeed,380,Slide starts only when moving at least this fast on the ground (cm/s); hold C / Left Ctrl / LT
+SlideExitSpeed,300,The slide ends below this speed (or on release / leaving the ground); must be <= SlideEnterSpeed
+SlideBoost,400,Speed burst (cm/s) added when a slide starts
+SlideBoostCooldown,0.8,Seconds before another slide start gives the burst again (no tap-spam speed)
+SlideMaxSpeed,2000,Slide speed cap (cm/s); downhill slides build up to this
+SlideFriction,500,Slide speed lost per second on flat ground (cm/s^2)
+SlideSlopeGravity,2.2,x gravity pulling a slide downhill (and slowing it uphill)
+SlideSteerDegrees,90,How fast a slide can turn toward your input (deg/s)
+SlideCapsuleHalfHeight,55,Capsule half height while sliding (standing = 90)
+SlideRollAnimDrop,400,Landing with slide held after a drop of at least this many cm plays the roll animation
+HopWindow,0.15,Bunny hop: seconds after landing that the landing speed is kept; jump inside it to chain hops
+HopMaxSpeed,1500,Bunny hop: highest speed a hop chain can keep (cm/s)
+HopSpeedGain,1.03,Bunny hop: speed multiplier per well-timed hop (capped at HopMaxSpeed)
+AirControl,0.6,Steering in the air (0-1)
+AirControlBoost,2,Air control multiplier when moving slowly in the air (easier small corrections)
+AirControlBoostThreshold,25,Horizontal speed (cm/s) below which AirControlBoost applies
+FastFallGravity,2.5,Slide held in the air after the apex: gravity multiplier (fast-fall)
+FallDamageMinHeight,900,Falls shorter than this (cm from the top of the arc) do no damage; a plateau top + one jump stays under it
+FallDamagePerMeter,0.04,Fraction of max health per metre fallen beyond FallDamageMinHeight
+FallDamageMaxFraction,0.3,Most a single fall can take (fraction of max health); a fall never downs a reaper
+JumpPadSafeLaunchZ,900,Launches at least this strong upward (jump pads) make the next landing safe; a slide-landing roll and the Scarecrow glide are always safe
+SlideFovKick,8,Camera field of view added while sliding (deg; base 75)
+SpeedFovKick,6,Camera field of view added at SpeedFxFullSpeed (deg)
+SpeedFxMinSpeed,1000,Speed lines and the speed FOV start here (cm/s)
+SpeedFxFullSpeed,1800,Speed lines and the speed FOV are full here (cm/s)
+AnimSlideLeanDegrees,10,How far the reaper leans back in the slide pose
+AnimAirRiseSpeed,720,Nov 15 2026 animation: upward speed (cm/s) that shows the launch end of the SQ_Jump_Air pose strip (apex pose at 0)
+AnimLookScale,1,Nov 15 2026 animation pass 2: how far your own reaper turns its chest and head toward where the camera looks (0 = off; up to 1.5)
+AnimAirFallSpeed,900,Nov 15 2026 animation: falling speed (cm/s) that shows the reach-for-the-ground end of the SQ_Jump_Air pose strip
+# --- Economy health (chest relics roughly double a reaper's DPS by night 3: model section 6). Night N uses <key>N; Endless uses 3 ---
+EconomyBossHealth1,1.1,Boss HP multiplier on night 1 (on top of Bosses.csv Health and the co-op / Defiance / test-night scales). Kits pass (Nov 9; signature weapon + E/R add single-target DPS): 1.1 / 1.09 / 1.41 (items/tomes pass was 0.87 / 0.9 / 1.3; before that 1.25 / 1.8 / 2.0)
+EconomyBossHealth2,1.09,
+EconomyBossHealth3,2.6,Boss HP multiplier for every mission boss (missions always use 3). Remake pass 1.41 -> 2.6 with the run simulation (Scripts/balance_model.py section 16); per-mission fine tuning in Missions.csv BossHealthMult
+EconomyEnemyHealth1,1.05,Horde HP multiplier on night 1 (Enemies.csv Health + HealthPerNight step); keeps hits-to-kill at 2-5 late (items/tomes pass: 1.05 / 1.05 / 1.0)
+EconomyEnemyHealth2,1.05,
+EconomyEnemyHealth3,1,
+# --- Map interactables (Shrines.csv; Nov 7 world pass) ---
+ShrineDwellSeconds,0.5,Stand on a shrine pedestal this long to take its raise / relic
+ShrinePickSeconds,25,Charge shrine: reapers who have not picked by then get a random raise
+ShrineCursedMinSeconds,45,Contract Extension Lectern only opens with more than this many seconds left in the night
+PotTouchRadius,50,A pot breaks when a reaper comes within its Radius + this (cm)
+PotAttackRange,280,During the night a pot within this range of a reaper is broken by its auto-attacks (cm)
+# --- Navigation hazards (Biomes.csv Hazards / HazardCounts) ---
+HazardDamagePerNight,0.3,Hazard damage x (1 + this x night index)
+HazardGloomPeriod,55,Lights Out cycle length (s)
+HazardGloomWarn,6,Lights Out countdown before the dark (s)
+HazardGloomDark,12,Lights Out dark time (s)
+HazardGloomDps,5,Health drained per second outside the light during Lights Out (no soul drop)
+HazardGloomLightRadius,550,Light radius of a roaming will-o-lamp (cm)
+HazardGloomMoonDim,0.15,Moonlight multiplier while dark
+HazardGraveRadius,160,Open grave radius (cm)
+HazardGravePlayerSpeed,0.35,Reaper walk speed multiplier inside an open grave
+HazardGraveEnemySpeed,0.45,Enemy speed multiplier inside an open grave
+HazardFogRadius,1300,Fog bank radius (cm)
+HazardFogDensity,0.05,Height fog density with the camera deep inside a fog bank
+HazardFogDrift,1500,How far a fog bank drifts from its anchor (cm)
+HazardGustPeriod,7,Gust vent cycle length (s)
+HazardGustWarn,1.2,Gust vent glow-up before it blows (s)
+HazardGustActive,0.8,Gust vent blowing time (s)
+HazardGustRadius,200,Gust vent radius (cm)
+HazardGustLaunch,1500,Gust vent upward launch speed (cm/s; jump pads use 1300)
+HazardBellPeriod,22,Bell toll cycle length (s)
+HazardBellWarn,2.5,Bell sways and glows this long before the toll (s)
+HazardBellSpeed,900,Bell shockwave ring speed (cm/s)
+HazardBellMaxRadius,5000,Bell shockwave ring max radius (cm)
+HazardBellBand,90,Bell shockwave ring thickness (cm)
+HazardBellDamage,18,Bell shockwave hit on a grounded reaper (x night scaling)
+HazardBellJumpClear,50,Feet this high above the ground clear the bell shockwave (cm)
+# --- Slide knockback (ASQCharacter::ServerTickSlideKnock -> ASQHordeManager::ApplyKnockback, about 10 times a second while sliding) ---
+SlideKnockRadius,140,A sliding reaper shoves ground enemies within this radius (cm)
+SlideKnockStrength,450,Shove speed (cm/s) along the slide; decays over about 0.3 s
+SlideKnockMaxEnemyRadius,62,Only enemies this small or smaller (runtime body radius: Enemies.csv Radius blended to the art) get shoved; never flyers. 62 = Lurcher (59) in / Spitter (65) Bloat (90) Brute (110) out
+# --- Items / tomes pass (Nov 7; Docs/ItemsAndTomes.md; SQ::FinalizeStats, ASQCharacter::CanTakeUpgrade). Every source adds RAW stats; these caps and curves run once on the total ---
+WeaponSlots,4,SHARED weapons (+ their evolutions) a reaper can hold ON TOP of its signature weapon (kits pass: signature + 4). Full = level-up cards only offer weapons you own
+TomeSlots,4,Tomes (level-up stat books) a reaper can hold. Items (chests / Lost Property) have no slots and stack
+CooldownFloor,0.4,Attack speed: weapon cooldown x 1 / (1 + summed attack speed); never below this fraction
+CritChanceMax,1,Crit chance cap (one crit tier: readable numbers). Chance past it turns into crit damage
+CritOverflowToDamage,1,Crit damage gained per 1.0 of crit chance past CritChanceMax
+AreaMax,3,Weapon area multiplier cap
+DurationMax,3,Duration multiplier cap (turret life / slows / projectile flight)
+ArmorK,1,Damage taken x ArmorK / (ArmorK + armor): each 0.01 armor = +1% effective health (raw armor 0.25 = 20% less damage)
+ArmorMax,0.75,Most damage armor can ever remove
+EvasionK,1,Dodge chance = evasion / (evasion + EvasionK)
+EvasionMax,0.4,Dodge chance cap
+LuckSoftCap,2,Luck used for rarity rolls = LuckSoftCap x L / (L + LuckSoftCap): ~linear while small and never above this
+ProjectileBonusMax,4,Most extra projectiles / chain jumps / beams from tomes + items
+TurretBonusMax,6,Most extra turrets per turret weapon (Bonesmith passive included)
+MoveSpeedMax,1100,Move speed cap (cm/s) from stats (slides and bunny hops can still go faster)
+# --- Far horde impostors + collision pass (Nov 7; ASQHordeManager) ---
+ImpostorShadows,1,1 = far impostor enemies cast shadows like the skinned ones (0 = cheaper: no shadows past SkinnedEnemyRadius)
+ImpostorPhasePull,4,Near the hand-off ring an impostor walk phase is pulled toward its skinned leader this fast (1/s) so the switch does not pop
+CollisionArtFit,1,Enemy body radius: 0 = Enemies.csv Radius / 1 = measured from the impostor art (mesh width x FitScale x Stretch.X); blends between
+BodyBlockUseCapsule,1,1 = the reaper body radius for blocking / enemy reach / hostile shots is the reaper capsule (40) (0 = BodyBlockPlayerRadius)
+# --- Tutorial (SQTutorial: Quick Start cards + one-time tips) ---
+TutorialTipSeconds,6,Nov 12 2026 market audit (Docs/MarketAudit.md): 10 -> 6
+TrainingHoldMaxSeconds,20,Nov 12 2026 market audit (Docs/MarketAudit.md): 60 -> 20: the first-run lesson never keeps the horde away longer than this
+TutorialSeeRange,1800,A chest / shrine / pot this close (cm) counts as seen for its first-time tip
+TutorialRampSlope,12,Fallback: ground steeper than this (deg) under a running reaper triggers the slide-down-ramps tip
+TutorialParkRange,450,A skate-park piece this close (cm) or standing on a park line (lane / bowl / gap) triggers the slide-down-ramps tip
+# --- Missions (Nov 9 2026 missions rebuild; Docs/Balance.md section 10; model: Scripts/balance_model.py sections 12-14) ---
+StageHpRefRatio,3,Act ramp smoothing: horde HP is eased between act starts (no jump at an act change) assuming HealthPerNight = this x Health (horde average ~3)
+ObjectiveFirstDelay,40,Nov 12 2026 market audit (Docs/MarketAudit.md): 20 -> 40: the first 40 s are just you and the horde (one thing to learn at a time)
+ObjectiveGap,15,Seconds between one objective ending and the next one appearing
+ObjectiveSpread,1,Objective k is scheduled at k / count x this share of the stage (the next one never comes before its schedule x ObjectiveEarlyFactor)
+ObjectiveEarlyFactor,0.88,Finishing objectives fast pulls the next one forward: at most to this share of its scheduled time
+ObjectiveTimeBankSouls,150,Time limit (s) before an objective fails (1 Defiance stack on the boss). 0 = no limit
+ObjectiveTimeDestroySpawners,150,
+ObjectiveTimeDefendPoint,150,
+ObjectiveTimeEscort,200,
+ObjectiveTimeCollectItems,120,
+ObjectiveTimeSurviveWave,0,Survive objectives end when their own timer does
+ObjectiveTimeKillElite,150,
+ObjectiveGold,40,Gold reward to EVERY reaper (x act gold growth x gold multipliers)
+ObjectiveXPLevels,0.6,XP reward = this share of the current level's XP
+NestHealth,1100,Spawner nest HP (x act step NestHealthPerAct x (1 + EnemyHealthPerPlayer x extra reapers) x mission HealthMult)
+NestHealthPerAct,1.2,Nest HP x(1 + this x act index)
+NestRadius,260,Nest body radius (cm): weapon hits on enemies within this of a nest also hit it
+NestHitShare,0.5,Share of a weapon hit near a nest that the nest takes
+NestSiegeDPS,30,Damage per second a reaper standing next to a nest deals to it (x augment level scale x damage multiplier)
+NestSpawnInterval,5,A nest spawns NestSpawnCount enemies this often (s)
+NestSpawnCount,4,
+DefendRadius,600,Defend zone radius (cm)
+DefendDecayPerSecond,0.02,Defend meter lost per second while nobody stands in the zone
+DefendPressureInterval,7,Seconds between pressure waves at a defend zone
+DefendPressureCount,10,Enemies per pressure wave (x team size bonus)
+EscortRadius,700,The cart moves while a reaper is this close (cm)
+EscortSpeed,160,Cart speed (cm/s); the escort road is ASQArena::GetEscortPath
+EscortAmbushInterval,9,Seconds between ambushes on the cart
+EscortAmbushCount,8,
+UrnPickupRadius,160,Walk this close to a soul urn to collect it (cm)
+SurviveWaveInterval,8,Survive objective: a swarm burst this often (s)
+SurviveWaveCount,18,
+KillEliteHealthMult,3,Hunt objective elites: health / damage multipliers on their normal stats (crowned)
+KillEliteDamageMult,1.3,
+SoulGold,0.25,Gold per soul banked at the lantern (shared purse) - souls feed the Bank Souls objectives and turn into gold
+AugmentLevel1,10,Team levels that offer every reaper an augment
+AugmentLevel2,20,
+AugmentDamagePerLevel,0.06,Augment damage x(1 + this x (team level - 1)) x the owner's damage multiplier
+AugmentOrbitTick,0.4,Orbiting gravestones hit this often (s)
+AugmentMaxBlastsPerFrame,32,Cap on augment explosions / bolts processed per frame (chain reactions spread over frames)
+AugmentChainMaxDepth,1,Augment blasts queued by a blast's own kills / overkill: at most this many generations (1 = one chain link). Stops Chain Reaction + Powder Keg from wiping the map
+AugmentRefundPerSecond,1,Kill cooldown refunds (Ruthless Rhythm) per second at most - abilities and dash each - so cooldowns run at most 2x as fast
+MaxPardons,2,Most Death's Pardons a reaper can hold (meta + augment)
+BankShareWin,0.12,Share of the gold you EARNED in a mission that is banked (meta currency) on a win
+BankShareLoss,0.2,Nov 12 2026 market audit (Docs/MarketAudit.md): 0.1 -> 0.2: a lost run still pays for something in Death's Office
+MetaReviveMinSeconds,3,Field Medic: fastest field revive (s)
+# --- Top-down camera / controls / aim (ASQCharacter camera + ASQPlayerController; Nov 9 mission-based remake) ---
+TopDownMode,1,1 = the standard controls (since Nov 12 2026: third-person chase camera + mouse look + camera-relative WASD; the name is historical); 0 = the old reference 3rd-person controls
+CameraPitch,-60,Unused since Nov 9: the camera tilt is SETTINGS > CAMERA (USQSaveGame::CameraTilt; default 60)
+CameraYaw,0,Fixed camera yaw (deg); screen up = this world direction
+CameraStartDist,3000,Unused since Nov 9: the zoom is SETTINGS > CAMERA (USQSaveGame::CameraZoom; default 3000)
+CameraMinDist,2200,Unused since Nov 9: wheel zoom range is SQSettings::ZoomMin..ZoomMax (2200..4200)
+CameraMaxDist,4200,Unused since Nov 9: wheel zoom range is SQSettings::ZoomMin..ZoomMax (2200..4200)
+CameraZoomStep,150,Unused since Nov 12 2026: ChaseZoomStep
+CameraFov,55,Unused since Nov 12 2026 (overhead camera): the chase camera uses ChaseFov
+CameraFollowSpeed,9,Unused since Nov 9: SETTINGS > CAMERA > Follow smoothing sets the spring arm lag
+CameraLagMaxDistance,600,Unused since Nov 12 2026: ChaseLagMaxDistance
+CameraLookAhead,260,Unused since Nov 12 2026 (the overhead camera leaned toward the cursor)
+CameraOcclusion,1,1 = arena meshes between the camera and any reaper are hidden (local only)
+OcclusionMinHeight,170,Only meshes at least this tall above the ground can be hidden (cm)
+OcclusionPadding,50,Extra margin around each mesh box for the camera-to-reaper test (cm)
+OcclusionHoldSeconds,0.35,A hidden mesh comes back this long after it stops blocking (no flicker)
+OcclusionMaxColliderInstances,6,Colliding instanced meshes with more instances than this never hide (hiding one hides the whole component)
+TopDownTurnRate,1080,How fast a reaper turns toward its move direction / the cursor (deg/s)
+AimLockSeconds,0.25,After an E/R cast the reaper faces the cursor this long
+DashTowardCursor,1,1 = Space dashes toward the cursor / right stick (move direction when the cursor is on the reaper or auto-aim is active); 0 = always the move direction
+AimReticle,1,Unused since Nov 9: the HUD draws the reap reticle at the cursor (the ground ring is gone)
+AimStickRange,800,Unused since Nov 12 2026 (the right stick turns the chase camera)
+AimIdleSeconds,1,Unused since Nov 12 2026
+AutoAimMouseIdleSeconds,0,Unused since Nov 12 2026 (SETTINGS > Aiming chooses AUTO or MANUAL)
+AutoAimFallback,1,AUTO aim: 1 = the aim point is the nearest enemy (or the boss) within AutoAimRange; 0 = always the move / camera direction
+AutoAimRange,1500,Auto-aim search radius (cm)
+# --- Top-down maps (Nov 9 2026; ASQArena layout + mission spots; Biomes.csv Map* columns pick the layout per biome) ---
+ArenaHalfSize,11200,Half the arena side: map revamp (Nov 10 2026) 224 m square with skate districts (was 5600 = 112 m)
+RandomMaps,1,1 = a new random layout every run (seed replicated; each layout is flood-checked and rerolled if any start/zone/pad/objective is cut off; falls back to the fixed biome layout). 0 = fixed layout per biome
+DeathSplats,0,0 = enemies leave nothing behind but XP (1 = the old clay splat under every kill)
+XpTier1,4,XP crystal value for tier 2 (two crystals); below it: one small green shard
+XpTier2,12,XP crystal value for tier 3 (a bright green cluster)
+XpTier3,40,XP crystal value for tier 4 (the big white prism)
+GoldTier1,5,gold value for a coin stack (below: one coin)
+GoldTier2,15,gold value for a coin purse
+GoldTier3,40,gold value for a gold bar
+PickupMergeAt,60,once this many XP crystals (or gold pickups) lie on the ground nearby ones fold together into bigger tiers
+PickupMergeRadius,200,merge cell size in cm: pickups of a kind in the same cell fold into one
+PickupMergeEvery,0.35,seconds between merge passes
+PickupMergeMinAge,0.8,a fresh drop stays itself this long before it can merge (you see it land)
+PickupMergeKeepClear,450,pickups this close to a reaper never merge (they're being collected)
+MapHubRadius,1800,Flat open hub at the centre (player starts + first lantern spot) (cm)
+MapKiteRing,1400,Open kiting ring round the hub: no walls inside HubRadius + this (cm)
+MapZoneRing,0.62,Landmarks + boss arena sit on a ring at this fraction of the half size
+MapLandmarks,6,Landmark zones per map (Biomes.csv MapLandmarks overrides; 2-6)
+MapLandmarkRadius,1300,Landmark zone radius (cm); the inner 80% stays open and frames go round it
+MapBossRadius,2400,Boss arena radius (cm; Biomes.csv MapBossRadius overrides). The floor is kept fully open
+MapRoadWidth,700,Escort road width (cm); kept clear of walls / props / hazards / shrines
+MapRoadInset,1200,Escort road starts this far in from the arena edge (cm)
+MapSpawnerCount,14,Spawner pads planned near the edges (2-16)
+MapSpawnerInset,1000,Spawner pads sit this far in from the arena edge (cm)
+MapCollectSpots,40,Scattered CollectItems spots kept per map (spread order)
+MapTiers,5,Low tiers per map (Biomes.csv MapTiers overrides; 0-10)
+MapTierMaxHeight,250,Tallest a tier may be (cm) - the camera must never lose a player behind terrain
+MapTierSlope,16,Tier ramp steepness (deg; landmark platforms may go a little steeper)
+MapRoll,25,Gentle ground roll amplitude (cm); mission floors are dead level
+MapEdgeRise,60,How far the ground rises into the edge walls (cm)
+MapMaxSlope,30,Walkability clamp between grid neighbours (deg); skate banks / quarters are designed under it
+MapWaterBand,900,Harbour water band width along one edge (Docks layout) (cm)
+MapLamps,22,Lamp posts beside the escort road and at the landmarks
+MapFadeHeight,200,Anything taller than this (cm) is its own component tagged SQFadeable (camera occlusion fade)
+MapGroundBrightness,0.85,Ground vertex colour multiplier (top-down: the floor must not be too dark)
+MapMoonIntensity,4.6,Moonlight intensity (top-down)
+MapMoonPitch,-50,Moonlight pitch (deg): high light = short readable shadows (only if the light is movable)
+MapMoonYaw,35,Moonlight yaw (deg)
+MapSkyLight,1.3,Sky light fill (keeps shadows readable)
+MapFogStart,3000,Fog starts beyond the far edge of the top-down view (cm)
+MapFogDensity,0.006,Height fog density (top-down)
+MapBloom,0.6,Bloom (map remaster: lets the interactable cues and lamp caps glow)
+MapVignette,0.28,Vignette (map remaster: frames the view; the screen edges still hold enemies)
+MapSaturation,1.06,
+MapContrast,1.1,
+MapEdgeDarken,0.5,Map remaster: ground brightness at the very edge of the arena (frames the playfield)
+MapEdgeBand,1500,Map remaster: width of the darkened edge band (cm)
+MapPropClusterSize,4,Map remaster: edge props per silhouette cluster (first one is the tall centrepiece)
+MapFlagstoneSize,170,Map remaster: flagstone size on the hub / landmark / boss plazas (cm)
+MapFlagstoneGrout,18,Map remaster: gap between flagstones (cm)
+MapFlagstoneMissing,0.08,Map remaster: fraction of flagstones left out (worn plaza)
+MapKerbSpacing,150,Map remaster: spacing of the kerb stones along the road (cm)
+MapZonePosts,6,Map remaster: glowing marker posts round each landmark (boss gets 2 more)
+CueLabelRange,750,Interactable cue: the label shows when your reaper is this close (cm)
+CueBrightness,1,Interactable cue: glow multiplier for the ground ring and diamond
+MapShadowLift,0.015,Post-process shadow offset (lifts the darkest floor a touch)
+MapExposureAdd,0.3,Added to ExposureBias when the map uses manual exposure
+MapBackdropInset,900,Backdrop silhouettes start this far outside the walls (cm)
+HordeWallLook,260,Walkers probe this far ahead to steer round layout walls / props (cm; 0 = no steering and push-out only)
+HazardGloomRingRadius,900,Gloom ring radius (cm) - replaces Lights Out; uses HazardGloomPeriod / Warn (fill-in) / Dark / Dps
+HazardGloomRingSpeed,0.045,Gloom ring roaming speed (rad/s on its Lissajous path; ~180 cm/s at most)
+HazardBellRingSpeed,700,Bell ring speed (cm/s) - dash through it (dash i-frames)
+HazardBellRingRadius,3200,Bell ring reach (cm) - outlined on the ground while the bell winds up
+HazardBellRingBand,160,Bell ring band width (cm)
+HazardGustHop,950,Gust vent hop speed (cm/s; >= JumpPadSafeLaunchZ so the landing is safe)
+# --- VFX / feel agent (Nov 9 animation pass: Rise + Attack storyboards; SQRise.cpp, SQFx.cpp, SQCharacter attack juice) ---
+RiseSeconds,1.1,Nov 12 2026 market audit (Docs/MarketAudit.md): 1.6 -> 1.1 Rise from the grave length (s); the reaper is frozen that long
+RiseLateJoinSkip,1.5,A client that receives the rise this many seconds late (late joiner / hitch) skips straight to the end state
+RiseClipFull,1,1 = SQ_Rise_FromGrave rises out of the ground by itself (played from 0 s); 0 = treat it like the stand-in clips (mesh lifted from RiseDepth at 0.9 s)
+RiseDepth,200,How far below the ground the skinned mesh waits (cm) when a stand-in rise clip is used
+RiseCrackRadius,170,Glowing crack ring radius (cm) at the start of the rise
+AttackWindUpSeconds,0.133,Anticipation: the attack clip plays slowed for its first ~4 frames (s; 0 = off)
+AttackWindUpRate,0.5,Anticipation clip rate during the wind-up (0.2..1)
+AttackAnticipationSquash,0.06,Anticipation squash (fraction of height; Slam x1.4)
+AttackSmearSeconds,0.067,The smear (wide ghost trail + stretch) leads the blow by this much (~2 frames)
+AttackHitStopSeconds,0.06,Hit-stop on the attack clip at the blow (local anim only; never time dilation)
+AttackHitStopCritSeconds,0.09,Hit-stop on crits
+AttackFollowSeconds,0.167,Follow-through after the hit-stop (~5 frames)
+AttackSettleSeconds,0.2,Settle back to ready (~6 frames)
+AttackCamNudge,0.08,Owner camera nudge at the blow (shake seconds; Slam x1.6)
+AttackCamNudgeCrit,0.25,Owner camera nudge on crits
+AttackReleaseMaxDelay,0.15,Ranged effects (projectiles / beams / chains / novas) wait for the cast-throw release by at most this (s)
+MeleePopDelay,0.15,Arc / nova damage numbers wait this long when a swing animation plays (lines up with the blow)
+WeaponKnockback,220,Arc (melee) weapons shove enemies in reach outward at this speed (cm/s; decays ~0.3 s; 0 = off)
+WeaponKnockbackMaxEnemyRadius,62,Only enemies up to this body radius are shoved by weapon knockback
+ReapFxDetail,1,Reap swing effect particle count scale (0.25..2)
+ReapSweepLead,0.05,Reap swing: glint before the ghost scythe starts sweeping (s)
+ReapSweepSeconds,0.18,Reap swing: time for the ghost scythe to cross the cone (s)
+ReapImpactFrac,0.4,Impact frame of SQ_Reap_Swing (fraction of the clip)
+ReapAnimRate,1.25,Play rate of the reap swing clip
+ReapHitStopSeconds,0.07,Hit-stop at the reap's impact frame (local anim only)
+ReapCamNudge,0.3,Owner camera nudge at the reap's impact
+# --- Reap core + early curve (Nov 9 2026; SQReap.h, ASQHordeManager; Docs/Balance.md section 12; model section 26) ---
+ReapRipeFraction,0.25,An enemy below this share of its max HP is ripe (teal ring + skull tag); minibosses and bosses never are
+ReapCooldown,1.2,Seconds between scythe swings (left click)
+ReapRange,380,Scythe cone length (cm)
+ReapHalfAngle,35,Scythe cone half angle (deg)
+ReapDamage,8,Scythe hit on non-ripe enemies x (1 + ReapDamagePerLevel x (team level - 1)) x the damage stat x crit
+ReapDamagePerLevel,0.04,
+ReapBossBonus,3,Bosses and minibosses are never executed: they take this x the scythe damage
+ReapSoulBonus,1,Souls straight into the sack per reaped soul
+ReapXP,1,Team XP per reaped soul x the Reap Streak
+ReapStreakGold,0.5,Gold per reaped soul x (streak - 1) x gold multipliers x act gold growth (shared purse)
+ReapPassageRadius,40,Reaper's Passage: extra reach (cm) past the body circle while the dash passes through enemies
+StreakWindow,2,Seconds a Reap Streak waits for the next reap
+StreakMax,5,Highest streak multiplier
+UltChargePerReap,0.015,R charge per reaped soul (x UltRefCooldown / the kit's R cooldown); R casts at 1 and resets
+UltChargePerKill,0.00075,R charge per kill credited to the reaper (same scaling)
+UltRefCooldown,70,"R charge pace reference: a kit whose R cooldown is this fills at the base rate (55 s Rs faster, 90 s slower)"
+UltShareFraction,0.5,Co-op: reaping near a teammate also gives them this share of the raw charge
+UltShareRange,600,
+HarvestReviveSouls,10,Co-op Harvest Revive: souls the team reaps near a downed reaper to stand it up at ReviveFraction
+HarvestReviveRange,700,
+TutorialHoldEnemies,6,Solo Training Shift: slow enemies kept near the reaper while USQTutorial::ShouldHoldSpawns (stage clock waits too)
+TutorialHoldRadiusMin,900,
+TutorialHoldRadiusMax,1300,
+SpawnRateEarly,3,Nov 12 2026 market audit (Docs/MarketAudit.md): 2 -> 3 spawn rate (solo) reached at SpawnEarlyMinutes
+SpawnEarlyMinutes,1.5,Nov 12 2026 market audit (Docs/MarketAudit.md): 2 -> 1.5
+SpawnEarlyEaseExp,1.5,Ease of the first minutes (1 = linear; 1.5 keeps the first minute near 1 /s)
+SpawnRateActStart,6,Acts 2-3: spawn rate at the act start (lerps to SpawnRatePeak through the act)
+OnScreenCapStart,30,Most living enemies the regular spawn loop allows up to OnScreenCapFlatMinutes (solo)
+OnScreenCapFlatMinutes,1,
+OnScreenCapPerMinute,25,+ this per release minute after that (x crew x spawn multipliers; MaxEnemies stays the hard cap; swarms / nests ignore it)
+EarlyHealthStart,0.4,"Act 1: new enemies' HP x this at the stage start (Shambler 15 x 1.155 Graveyard -> ~7, one scythe hit) easing to 1"
+EarlyHealthMinutes,6,
+CatchUpMax,0.25,New enemies' HP drifts toward the crew's damage by at most +-this (catch-up)
+CatchUpTargetSeconds,3,Catch-up target: seconds an enemy should survive once within CatchUpNearRadius of the crew (near count / kill rate)
+CatchUpNearRadius,800,
+CatchUpWindow,20,Seconds of smoothing for the catch-up measurements
+CatchUpExp,0.5,Catch-up response: HP x (target / measured seconds) ^ this
+CatchUpDriftPerSecond,0.01,Catch-up drift speed (multiplier change per second)
+CatchUpMinKillRate,0.5,Kills / s below which the catch-up stays neutral
+MapPropDensity,3,Map revamp: multiplier on Biomes.csv PropCount / DecorCount (authored for the 112 m map)
+MapInteractScale,2.5,Map revamp: multiplier on Shrines.csv PerBiome for pots and shrines placed 2+ times per map
+MapLaneWidth,440,Map revamp: width of the lanes from the hub to each district (cm); kept open and flat
+MapLaneBend,700,Map revamp: how far a hub lane may bend off the straight line (cm)
+MapDistrictReach,2600,Map revamp: how far a district's skate ground reaches beyond its landmark zone (cm)
+MapSkatePerDistrict,6,Map revamp: banks / bowls / rollers / quarters / spines / kickers per district (half are the district theme)
+MapParkPerDistrict,4,Map revamp: bone park pieces (Park_* meshes; real collision) per district
+MinimapSize,230,Map revamp: corner minimap size (HUD design units at 1080p)
+MinimapRange,5500,Map revamp: minimap reach from your reaper to the panel edge (cm)
+MinimapRevealRadius,3200,Map revamp: fog of war revealed round every reaper (cm)
+MapGroundDesat,0,Map art pass: how far the ground colours are pulled toward grey (0-1). A quieter floor lets reapers / the horde / pickups carry the colour
+MapDistrictTint,0.04,Map art pass: how strongly a district colours its ground (was 0.16)
+MapWallShade,0.3,Map art pass: how much the ground darkens right against a wall (contact shade)
+MapVignettes,34,Map art pass: composed scenes between the districts (a tall centrepiece + rows of low props). 0 = none
+MapMonumentHeight,520,Map art pass: height of the stone monument at the back of each landmark (cm)
+MapLaneLightSpacing,520,Map art pass: gap between the candles that line the hub lanes (cm)
+MapLaneLightGlow,3,Map art pass: lane candle flame glow
+MapMotes,44,Map art pass: fireflies drifting round the local view (0 = off)
+MapMoonSoftness,2,Map art pass: moon source angle (deg) - higher = softer shadow edges
+StartDelaySolo,1,Nov 12 2026 market audit (Docs/MarketAudit.md): lobby countdown after READY when there is one human (co-op keeps StartDelay)
+# --- Style pass (Nov 12 2026): Midnight Fairground art direction - see Docs/ArtDirection.md ---
+StyleGroundVivid,0,Extra chroma on the painted ground (0 = palette as written; 1 = double)
+StyleSky,1,Sky dome + moon + stars + hill rings + giant skyline (0 = off)
+StyleSkyBrightness,0.7,Sky dome brightness (also tints the far fog). Needs eyes: lower if the sky outshines the ground
+StyleSkyRadius,90000,Sky dome radius (cm)
+StyleSkyMidHeight,0.22,Where the horizon glow hands over to the mid sky colour (0-1 of the dome height)
+StyleMoonYaw,35,Compass direction of the big moon (deg)
+StyleMoonElevation,15,How high the moon sits over the horizon (deg) - low so the chase camera sees it
+StyleMoonSize,0.085,Moon diameter as a fraction of the dome radius
+StyleMoonGlow,2.2,Moon emissive strength (bloom makes the halo)
+StyleStars,260,Stars on the dome
+StyleHills,26,Hills per ring outside the walls (two rings; 0 = none)
+StyleSkylinePerHill,2,Giant silhouettes (dead trees / crypts) on each near hill
+StyleFogSkyBlend,0.6,How far the fog colour moves to the sky's horizon colour (0 = biome fog; 1 = horizon)
+StyleInkStrength,0.8,Ink outline strength (0 = off). Needs eyes
+StyleInkThickness,1.5,Ink outline width in pixels
+StyleInkFadeDistance,6500,Outlines fade to nothing by this distance (cm) so the far horde is not black noise
+StyleInkDepthThreshold,0.035,Depth edge sensitivity (lower = more lines)
+StyleInkNormalThreshold,0.9,Crease edge sensitivity (lower = more inner lines)
+StyleRim,0.55,Rim light on every art mesh (reapers / horde / props). Needs eyes
+StyleRimR,0.45,Rim light colour (red)
+StyleRimG,0.75,Rim light colour (green)
+StyleRimB,1,Rim light colour (blue)
+StyleFxSize,1.3,Every spark / effect piece is this much bigger
+StyleFxCount,1.4,Every spark burst has this many times the sparks
+StyleFxGlow,1,Effect glow multiplier (Nov 19 2026: 1.25 -> 1 so effect colours hold instead of blowing out to white)
+StyleFxVivid,0.35,Extra chroma on every effect colour
+StyleFxFlash,1,Size of the short flash at the centre of each hit burst (0 = off)
+# --- Chase camera (Nov 12 2026; ASQCharacter::UpdateTopDownCamera, ASQPlayerController) ---
+ChaseFov,90,Chase camera field of view (deg; 60..110). The slide / speed kicks add a little
+ChaseHeight,90,Camera pivot this far above the reaper centre (cm)
+ChaseLagMaxDistance,220,The camera never trails the reaper by more than this (cm); SETTINGS > Follow smoothing sets the lag speed
+ChaseZoomStep,80,Camera distance per mouse-wheel notch (cm); the range is SQSettings::ZoomMin..ZoomMax (450..1500; default 850)
+ChaseGroundClearance,55,The camera stays at least this far above the terrain (cm): the arm shortens on banks and in bowls
+ChaseStickTurnRate,200,Gamepad right stick: camera turn rate at full deflection (deg/s; pitch is 60% of it)
+ChaseJump,1,1 = Space jumps (hold to hop) and Ctrl / C slides; 0 = Space dashes and there is no jump or slide
+ChaseSpectate,1,1 = while downed the camera drifts over to the nearest living teammate after 1.5 s
+ManualAimMaxRange,2600,MANUAL aim: the crosshair aim point is never farther than this from the reaper (cm)
+AbilityIndicators,0,1 = the old E / R range ring and aim shape flash on the ground when casting (overhead-camera aid; off with the chase camera)
+SoloSkipLobby,1,Nov 12 2026 flow pass: START REAPING on the main menu drops a solo player straight into the run (0 = always show the lobby)
+SkipLobbyDelay,0.4,Seconds on the RISING card before a solo start or a RETRY begins
+LanternTrail,1,Nov 12 2026 lantern trail (Docs/LanternTrail.md): 1 = lantern sites across the map light one at a time; 0 = one lantern at the hub all stage (old rule)
+LanternStages,4,Lanterns per stage: the hub first then one per district (capped by the districts the map has). The last one stands in the district beside the boss arena
+LanternQuota,200,Souls the FIRST lantern needs at 4 reapers on a 10-minute map (solo x SoloQuotaMult 0.5 = 100; longer maps scale by Duration / LanternQuotaRefSeconds). Sized by Scripts/balance_model.py section 18b so the trail fills ~75% of the stage
+LanternQuotaGrowth,1.5,Each later lantern needs this much more of LanternQuota (1.5: 200 / 500 / 800 / 1100 at 4 reapers; solo 100 / 250 / 400 / 550) - the horde (and the soul income) grows as fast
+LanternQuotaRefSeconds,600,Missions.csv Duration at which LanternQuota applies as written (a 14-minute map asks 1.4x)
+LanternSackGrowth,1.5,Every lantern behind you (banked or burnt out) adds this share of your base soul capacity (1.5: a 50 sack is 50 / 125 / 200 / 275) so a lantern stays about two sacks
+LanternDeadlineShare,0.94,Lantern k burns out at k / LanternStages x this share of the stage clock if its quota is not banked (no reward; the next one lights anyway)
+LanternMinSeconds,45,A lantern lit late still burns at least this long (walk + one sack)
+LanternDifficulty,0.06,Difficulty added for the rest of the run each time a lantern is banked or burns out (spawn rate + gold; enemy HP by DifficultyHealthShare)
+LanternGold,20,Gold to every reaper when a lantern is banked in full (x act growth x gold multipliers)
+LanternFinalAugment,1,1 = banking the last lantern gives everyone an augment pick (the others give a free chest each)
+LanternBeamHeight,5000,Height (cm) of the light beam over the lit lantern (0 = no beam)
+LanternBeamWidth,0.9,Beam width (m)
+LanternBeamGlow,3,Beam glow strength
+LanternFootlightSpacing,450,Distance (cm) between the footlights that run from the lantern just banked to the lit one
+LanternFootlightGlow,2.5,Footlight glow strength
+StyleGlow,1,Additive glow material M_SQGlow (souls / shockwaves / telegraph fills / glowing sparks). 0 = off: everything uses the old solid look
+StyleFxAdditive,1,Glowing spark shapes (spheres / flames / stars / bolts / crescents) drawn as additive light: brightness multiplier. 0 = solid emissive as before
+StyleFxMotionKit,1,Nov 19 2026 effects pass: 1 = use the motion kit (tapered swing arcs / needles / starbursts / FxRecipes.csv layered effects) when its meshes are imported. 0 = the old look
+StyleFxSignatureColour,1,1 = a reaper's signature weapon swings in the reaper's own palette colour instead of the upgrade card's near-white. 0 = card colour
+FxShake,1,Camera shake from big effects (ultimates / boss slams / chests / level-ups): multiplier. 0 = none
+StyleAoeDetail,1,Area impact layers (shockwave + echo ring + flash + cracks + shards + motes): count scale. 0 = plain disc
+SoulChunks,2,Soul wisps dropped per kill (same soul total; was 6)
+SoulMergeAt,8,Souls on the ground before nearby ones merge into bigger wisps
+SoulTier1,3,Soul wisp grows at this many souls
+SoulTier2,8,Soul wisp grows again
+SoulTier3,20,Largest soul wisp
+# --- Nov 12 2026 three-map remaster (Docs/Maps.md) ---
+MapFloorClutter,0,Floor rule: 0 = nothing lies on the floor but pickups (no bones / candles / kerbs / flagstone slabs / grass spikes / coping stones / lane candles). 1 = the old dressing
+LanternFootlights,0,Floor rule: the trail footlight discs on the ground are off (beam + arrow + minimap line guide you). 1 = on
+MapShapes,1,Use each map's large ground shape (Biomes.csv MapShape: Terraces / Causeways / Climb). 0 = flat maps
+MapSetPieces,1,Landmark buildings / gates / yard walls / avenues / lamp posts / statues (Biomes.csv SetPieces; meshes ArtSource/Props/Set_*.fbx). 0 = off
+MapAvenueSpacing,820,Distance between avenue slots along a lane (cm); trees and lamp posts alternate
+MapAvenueMax,72,Most avenue trees (or pilings) per map
+MapLampPostMax,64,Most lamp posts per map
+MapHubStatues,6,Statues round the lantern square (placed between the lanes where there is room)
+StyleSkylineScale,4,Size of the far skyline silhouettes on the hills (was 7-13x and read as giants)
+TideCycle,60,Drowned Harbour: seconds per tide (40% low / 15% rising / 30% high / 15% falling)
+TideLow,-120,Drowned Harbour: water level at low tide (cm; below every floor)
+TideHighShare,0.62,Drowned Harbour: high-tide level as a share of the quay height (Biomes.csv MapShapeTier): the flats flood and the quays stay dry
+TideSlow,0.6,Drowned Harbour: reaper speed multiplier in flooded ground
+TideEnemyDps,10,Drowned Harbour: damage per second to the horde in flooded ground (they also move at half speed)
+TideGlow,0.55,Drowned Harbour: brightness of the water sheet
+ClockHands,2,Clocktower: sweeping clock hands (0-3). Jump them; they hit grounded reapers and flatten the horde
+ClockHandPeriod,50,Clocktower: seconds per turn of the long hand
+ClockHandWidth,120,Clocktower: hand width (cm)
+ClockHandDamage,22,Clocktower: damage to a grounded reaper touched by a hand (once per 1.2 s)
+ClockHandEnemyDps,600,Clocktower: damage per second to the horde under a hand
+MapGroundArt,1,Ground art pass (Nov 15 2026): 1 = flat art in the ground itself (M_GroundV3: flagstones / planks / tiles / plaza mosaic / wet mud / moss / lantern wear). 0 = the plain V2 ground
+MapGroundMoss,0.35,Ground art: how strongly moss creeps onto soft ground at the foot of walls (0 = none)
+MapGroundJoint,0.42,Ground art: how dark the joints between stones / planks / tiles are (0 = invisible; 0.9 = black)
+MapScenery,1,Map art pass (Nov 15 2026): density of the standing KayKit scenery (house fronts round plazas / towers / cargo against buildings / wall runs with banners / groves / lane pillars / forest backdrop). 0 = none; 2 = double
+MapKitFrontYaw,-90,Map art pass: yaw offset that turns a KayKit building front toward its plaza (flip to 90 if houses face away)

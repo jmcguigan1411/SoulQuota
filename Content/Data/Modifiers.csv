@@ -1,0 +1,15 @@
+Id,Name,Description,CoinMult,SpawnMult,EnemyDamageMult,HealthRampMult,NightMult,ChestPriceMult,GoldMult,EliteMult,CrownAll,QuotaMult,NoHealing,HoldXP
+# Challenge modifiers ("Contract Clauses"): the host toggles them in the lobby (they stack with the mission and Hard mode).
+# Blank cells = no change. SpawnMult: horde spawn rate. EnemyDamageMult: every enemy hit. HealthRampMult: x EnemyHealthPerMinute and EnemyDamagePerMinute.
+# NightMult: stage length (missions). ChestPriceMult / GoldMult: chest prices / gold dropped. EliteMult: elite spawn weight. CrownAll 1: every elite is crowned.
+# QuotaMult: souls needed by Bank Souls objectives. NoHealing 1: health never goes up (revives excepted). HoldXP: no level-ups until this share of the STAGE (XP is held, then paid out).
+# Gold banked at the end of a mission x(1 + sum of (CoinMult - 1)), capped by Tuning ModifierCoinCap (Nov 9 missions: soul coins merged into gold).
+DoubleBooking,Double Booking,Twice the horde. Twice the paperwork.,1.5,2,,,,,,,,,,
+GlassReaper,Glass Reaper,Every enemy hits twice as hard.,1.5,,2,,,,,,,,,
+RushHour,Rush Hour,Enemies toughen up 2.5x faster through each act.,1.4,,,2.5,,,,,,,,
+NoSickDays,No Sick Days,No healing of any kind.,1.6,,,,,,,,,,1,
+Overbooked,Overbooked,The stage clock is a third shorter. The objectives are not.,1.3,,,,0.67,,,,,,,
+CostOfLiving,Cost of Living,Chests cost double and gold drops are 25% lighter.,1.3,,,,,2,0.75,,,,,
+ManagementVisit,Management Visit,Three times the elites and every one is crowned.,1.4,,,,,,,3,1,,,
+QuotaCrunch,Quota Crunch,Bank Souls objectives need 50% more souls.,1.3,,,,,,,,,1.5,,
+Probation,Probation,No level-ups in the first third of the stage. The XP waits for you.,1.3,,,,,,,,,,,0.333

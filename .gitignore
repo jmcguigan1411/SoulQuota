@@ -1,0 +1,12 @@
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/*
+!Saved/SaveGames/
+.vs/
+*.sln
+*.slnx
+*.suo
+*.VC.db
+*.blend1
+build_log.txt

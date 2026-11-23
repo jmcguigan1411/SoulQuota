@@ -1,0 +1,109 @@
+Id,Name,Category,Description,Stat,Target,Mode,Reward
+# Quests ("Performance Reviews"). Progress lives in the local profile (SQSave). The server credits events to each reaper; every PC tracks its own profile.
+# Mode: Total = summed over every run | Best = the best single run. Reward: '|' list of Coins:N (banked GOLD since the Nov 9 missions rebuild), Reaper:<Reapers.csv Id>, Item:<Upgrades.csv Id> (locked until earned).
+# Derived stats (worked out on the client): QuestsDone, ReapersHired, Contracts, ReaperWins (different reapers you have won with), MetaRanks (permanent upgrade ranks bought), MissionsCleared, HardCleared.
+# Stats credited by other systems through ASQPlayerState::CreditQuest: ShrinesUsed, PotsBroken (world agents). SlideKills is still credited but no quest uses it (no sliding in top-down play).
+# --- First shifts (the first hour) ---
+FirstNight,First Day on the Job,Progress,Complete your first objective.,ObjectivesDone,1,Total,Coins:60
+Paperwork,Paperwork Pending,Combat,Reap 300 enemies.,Kills,300,Total,Coins:40
+FirstChest,Finders Keepers,Economy,Open a chest.,ChestsOpened,1,Total,Coins:40
+KeyCutter,Spare Key Cut,Economy,Open 5 chests.,ChestsOpened,5,Total,Item:SkeletonKey
+Promotion15,Junior Promotion,Progress,Reach team level 15 in one run.,TeamLevel,15,Best,Coins:50
+FirstBoss,Appointment Kept,Boss,Beat a mission boss.,BossKills,1,Total,Coins:80
+Crowned1,Off With Its Crown,Combat,Defeat a crowned elite.,CrownedKills,1,Total,Coins:50
+Mini1,Account Closed,Boss,Defeat a timeline miniboss.,MinibossKills,1,Total,Item:CandleBeam
+QuotaMet1,Met Expectations,Progress,Complete a Bank Souls objective.,Obj_BankSouls,1,Total,Coins:50
+Gold500,Petty Cash,Economy,Earn 500 gold.,GoldEarned,500,Total,Coins:40
+FirstWin,Shift Complete,Progress,Win a mission.,RunsWon,1,Total,Coins:200|Item:RubberStamp
+EarlyBell,Early Appointment,Boss,Ring the Appointment Bell with 3 minutes or more left on the stage clock.,EarlyBell,1,Total,Coins:60
+# --- Reaper hires (the quest hires them free; banked gold hires them any time) ---
+HireDigby,Built Like a Headstone,Reapers,"Take 3,000 damage in total.",DamageTaken,3000,Total,Reaper:Digby
+HireCollector,Interest Compounds,Reapers,Carry 150 souls at once.,MaxCarried,150,Best,Reaper:Collector
+HireKeeper,Receipts Kept,Reapers,"Bank 8,000 souls in total.",SoulsBanked,8000,Total,Reaper:Keeper
+HireBeak,House Calls,Reapers,Revive 25 teammates (carry their skull to the lantern).,Revives,25,Total,Reaper:Beak
+HireTallow,Burns at Both Ends,Reapers,"Reap 50,000 enemies.",Kills,50000,Total,Reaper:Tallow
+HireMonk,Vow of Violence,Reapers,"Dash 2,000 times.",Dashes,2000,Total,Reaper:Monk
+HireLookout,Keeping Watch,Reapers,Defeat 500 elites.,EliteKills,500,Total,Reaper:Lookout
+HireVexa,Do Not RSVP,Reapers,Beat a mission boss while below 10% health.,LowHPNight,1,Total,Reaper:Vexa
+HireActuary,Every Soul Accounted For,Reapers,Win a mission with every objective completed and nobody downed.,PerfectRun,1,Total,Reaper:Actuary
+HireSweep,Rooftops Are a State of Mind,Reapers,Climb onto 20 raised terraces.,PlateausClimbed,20,Total,Reaper:Sweep
+HireSolace,Last Rites,Reapers,Carry 10 skulls back to the lantern.,Revives,10,Total,Reaper:Solace
+HirePallbearers,Fast Paperwork,Reapers,Complete 15 Bank Souls objectives.,Obj_BankSouls,15,Total,Reaper:Pallbearers
+HireEctoplasm,The Spirits Are Willing,Reapers,Beat 10 mission bosses with no failed objectives.,BossNoDefiance,10,Total,Reaper:Ectoplasm
+HireNeckless,Never Looks Where He's Going,Reapers,Win a mission in under 14 minutes.,FastWin,1,Total,Reaper:Neckless
+HireTickwell,Punctual to the Point of Rudeness,Reapers,Win 3 missions on Hard.,HardWins,3,Total,Reaper:Tickwell
+HireIntern,Unpaid and Keen,Reapers,Complete 30 Performance Reviews.,QuestsDone,30,Total,Reaper:Intern
+HireFemur,Who's a Good Reaper,Reapers,Open 200 chests.,ChestsOpened,200,Total,Reaper:Femur
+# --- Combat ---
+Kills150k,Overtime Ledger,Combat,"Reap 150,000 enemies.",Kills,150000,Total,Coins:300
+Kills750k,Employee of the Century,Combat,"Reap 750,000 enemies.",Kills,750000,Total,Coins:1000
+Rotters,Compost Duty,Combat,"Reap 20,000 Rotters.",Kill_Rotter,20000,Total,Coins:100
+Hounds,Bad Dog,Combat,"Reap 5,000 Bone Hounds.",Kill_BoneHound,5000,Total,Coins:100
+Wisps,Soul Recovery,Combat,"Reap 2,500 Soul Wisps.",Kill_Wisp,2500,Total,Item:VampireFang
+Bombers,Handle With Care,Combat,"Reap 2,000 Powder Corpses.",Kill_Bomber,2000,Total,Coins:120
+Bats,Belfry Cleaning,Combat,"Reap 3,000 Gravebats.",Kill_Gravebat,3000,Total,Item:NightClass
+Wraiths,Exorcism by Paperwork,Combat,"Reap 2,000 Wraiths.",Kill_Wraith,2000,Total,Coins:150
+Brutes,Brute Force,Combat,Reap 750 Grave Brutes.,Kill_Brute,750,Total,Item:GargoylePerch
+Crowned25,Crown Collector,Combat,Defeat 250 crowned elites.,CrownedKills,250,Total,Coins:200
+SwarmKills,Midnight Mob,Combat,"Reap 2,500 enemies during the Final Swarm.",SwarmKills,2500,Total,Coins:250
+NoHit1,Untouchable,Combat,Complete an objective without taking a hit.,NoHitNights,1,Total,Coins:250
+# --- Economy ---
+Chests20Run,Shopping Spree,Economy,Open 20 chests in one run.,ChestsOpened,20,Best,Coins:120
+Chests1000,Hoarder,Economy,"Open 1,000 chests.",ChestsOpened,1000,Total,Coins:600
+Free50,No Charge,Economy,Open 50 free chests.,FreeChests,50,Total,Item:RabbitFoot
+Legendary1,Golden Ticket,Economy,Get a Legendary item from a chest.,LegendaryChest,1,Total,Coins:150
+Gold100k,Small Fortune,Economy,"Earn 100,000 gold.",GoldEarned,100000,Total,Coins:250
+Office50,Office Regular,Economy,Buy 25 permanent upgrades in Death's Office.,MetaRanks,25,Total,Item:TeaUrn
+Shrines10,Pilgrim,Economy,Use 10 shrines.,ShrinesUsed,10,Total,Coins:100
+# --- Bosses and the timeline ---
+Bosses150,Legend Retirement Plan,Boss,Beat 150 bosses.,BossKills,150,Total,Coins:800
+BossFast,Short Meeting,Boss,Beat a boss within 2 minutes of ringing the bell.,BossFast,1,Total,Item:SpiritTotem
+BossBlitz,This Could Have Been a Memo,Boss,Beat a boss within 1 minute of ringing the bell.,BossBlitz,1,Total,Coins:400
+SwarmBoss,Overtime Without Pay,Boss,Beat a mission boss during the Final Swarm.,SwarmBoss,1,Total,Coins:200
+Swarm60,Still Standing,Boss,Survive 60 seconds of Final Swarm in one mission.,SwarmSeconds,60,Best,Item:Ectoplasm
+Swarm180,Midnight Never Ends,Boss,Survive 3 minutes of Final Swarm in one mission.,SwarmSeconds,180,Best,Coins:500
+# --- Progress ---
+Level40,Middle Management,Progress,Reach team level 40 in one run.,TeamLevel,40,Best,Coins:150
+Level60,Senior Partner,Progress,Reach team level 60 in one run.,TeamLevel,60,Best,Coins:500
+Wins10,Reliable Temp,Progress,Win 10 missions.,RunsWon,10,Total,Coins:400
+Wins50,Permanent Contract,Progress,Win 50 missions.,RunsWon,50,Total,Coins:1200
+Contracts5,The Whole Ledger,Progress,Clear all 3 missions (collect every contract).,Contracts,3,Total,Coins:1000
+Quests10,Under Review,Progress,Complete 10 Performance Reviews.,QuestsDone,10,Total,Item:EmbalmerPatience
+Quests60,Employee of the Month,Progress,Complete 60 Performance Reviews.,QuestsDone,60,Total,Coins:1500
+Endless15,Clock Never Stops,Progress,Clear all 3 missions on Hard.,HardCleared,3,Total,Coins:3000
+# --- Reaper mastery ---
+WinGrim,Death Works Better in a Team,Mastery,Win a mission as the Shade.,Win_Grim,1,Total,Coins:100
+WinMort,Travels Light,Mastery,Win a mission as Gutsy Gus.,Win_Mort,1,Total,Coins:100
+WinWidow,Mourning Glory,Mastery,Win a mission as Ondine the Wailing.,Win_Widow,1,Total,Coins:100
+WinBonesmith,Some Assembly Required,Mastery,Win a mission as Gravus the Unfallen.,Win_Bonesmith,1,Total,Coins:100
+Reapers5,Cross-Trained,Mastery,Win with 5 different reapers.,ReaperWins,5,Total,Coins:400
+Reapers21,The Whole Roster,Mastery,Win with all 21 reapers.,ReaperWins,21,Total,Coins:2000
+# --- Challenge modifiers (Modifiers.csv; picked by the host in the lobby) ---
+ModDouble,Twice the Paperwork,Challenge,Win with Double Booking on.,ModWin_DoubleBooking,1,Total,Coins:250
+ModGlass,Fragile Contents,Challenge,Win with Glass Reaper on.,ModWin_GlassReaper,1,Total,Coins:250
+ModTurbo,Accelerated Decay,Challenge,Win with Rush Hour on.,ModWin_RushHour,1,Total,Coins:250
+ModNoHeal,No Sick Days,Challenge,Win with No Sick Days on.,ModWin_NoSickDays,1,Total,Coins:300
+ModShort,Overbooked,Challenge,Win with Overbooked on.,ModWin_Overbooked,1,Total,Coins:250
+ModPricey,Cost of Living,Challenge,Win with Cost of Living on.,ModWin_CostOfLiving,1,Total,Coins:250
+ModElite,Management Visit,Challenge,Win with Management Visit on.,ModWin_ManagementVisit,1,Total,Coins:250
+ModQuota,Quota Crunch,Challenge,Win with Quota Crunch on.,ModWin_QuotaCrunch,1,Total,Coins:250
+ModProbation,On Probation,Challenge,Win with Probation on.,ModWin_Probation,1,Total,Coins:250
+Mods3,Above and Beyond,Challenge,Win with 3 modifiers on at once.,ModsInWin,3,Best,Coins:600
+Mods9,Read the Fine Print,Challenge,Win with all 9 modifiers on at once.,ModsInWin,9,Best,Coins:3000
+Difficulty50,Asking for It,Challenge,End a run at +50% Difficulty.,DifficultyPct,50,Best,Coins:300
+# --- Missions (Nov 9 2026: objectives, augments, Hard mode, Death's Office upgrades) ---
+Objectives50,Busy Week,Progress,Complete 50 objectives.,ObjectivesDone,50,Total,Coins:300
+Objectives500,Workaholic,Progress,Complete 500 objectives.,ObjectivesDone,500,Total,Coins:1500
+Nests50,Pest Control,Combat,Destroy 50 spawner nests.,NestsDestroyed,50,Total,Coins:250
+Escort20,Pallbearer's Union,Progress,Complete 20 escorts.,Obj_Escort,20,Total,Coins:300
+Defend20,Hold the Line,Progress,Complete 20 Defend objectives.,Obj_DefendPoint,20,Total,Coins:300
+Urns200,Urn Collector,Economy,Collect 200 soul urns.,UrnsCollected,200,Total,Coins:250
+Augment1,Something Special,Progress,Take an augment.,AugmentsTaken,1,Total,Coins:60
+Augment100,Heavily Augmented,Progress,Take 100 augments.,AugmentsTaken,100,Total,Coins:600
+Augment6Run,Fully Loaded,Challenge,Take 6 augments in one mission.,AugmentsTaken,6,Best,Coins:400
+Mission2,Harbour Pass,Progress,Clear 2 missions.,MissionsCleared,2,Total,Coins:300
+Mission3,Clocktower Pass,Progress,Clear all 3 missions.,MissionsCleared,3,Total,Coins:500
+HardWin1,Hard Bargain,Challenge,Win a mission on Hard.,HardWins,1,Total,Coins:500
+Meta10,Investing in Yourself,Economy,Buy 10 permanent upgrades in Death's Office.,MetaRanks,10,Total,Coins:200
+Meta60,Fully Vested,Economy,Buy 60 permanent upgrades in Death's Office.,MetaRanks,60,Total,Coins:2500
+GoldBank50k,Rainy Day Fund,Economy,"Bank 50,000 gold.",GoldBanked,50000,Total,Coins:1000

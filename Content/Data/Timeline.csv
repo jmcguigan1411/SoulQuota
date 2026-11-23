@@ -1,0 +1,21 @@
+Id,Kind,At,Nights,Missions,Hard,Enemy,Count,HealthMult,DamageMult,Name,Announce,FreeChest
+# Stage timeline beats (Nov 9 2026 missions). A mission is one stage in 3 acts; objectives come from Missions.csv (Objectives) and the
+# stage's minibosses from Missions.csv (Minibosses / MinibossAt). This file adds the swarm waves inside each act and the Final Swarm tiers.
+# Kind Swarm: At = share of the ACT (0..1). A burst of Count x Enemy (x team size and Difficulty) around the reapers, announced on the HUD.
+# Kind Miniboss: At = share of the act. An extra named miniboss (HealthMult / DamageMult on its normal stats); FreeChest 1 = a free chest each.
+# Kind FinalSwarm: At = minutes into overtime (the stage clock ran out before the boss was summoned). Count = extra spawns per second (solo,
+#   x team size), grows by Tuning FinalSwarmRampPerMinute. HealthMult / DamageMult on top of Tuning FinalSwarmHealthPerMinute / DamagePerMinute.
+# Nights = ACTS: * = every act, 2 = act 2 only, 3+ = act 3 (and overtime). Missions: * or a '|' list of Missions.csv ids.
+# Hard: blank = both modes, 1 = Hard mode only, 0 = normal only.
+SwarmA0,Swarm,0.02,1,*,,Shambler,10,1,1,Welcoming Committee,They are coming out of the ground. Start reaping!,0
+SwarmA1,Swarm,0.5,1,*,,Shambler,40,1,1,Coach Party,SWARM! A coach party of Shamblers!,0
+SwarmA2a,Swarm,0.4,2,*,,BoneHound,30,1,1,Off the Leash,SWARM! The hounds are off the leash!,0
+SwarmA2b,Swarm,0.85,2,DrownedHarbour|Clocktower,,Gravebat,30,1,1,Belfry Eviction,SWARM! Bats out of the belfry!,0
+SwarmA3a,Swarm,0.45,3+,*,,Rotter,60,1,1,Compost Heap,SWARM! The compost heap stirs!,0
+SwarmA3b,Swarm,0.85,3+,Clocktower,,Wraith,30,1,1,Through the Walls,SWARM! Wraiths through the walls!,0
+HardA2,Swarm,0.65,2,*,1,FreshArrival,35,1,1,Fresh Intake,HARD: SWARM! Fresh Arrivals sprint in!,0
+HardMini,Miniboss,0.5,3+,*,1,Brute,1,9,1.8,The Receiver,HARD: The Receiver has come to wind you up.,1
+FinalWraith,FinalSwarm,0,*,*,,Wraith,5,1,1,The Final Swarm,TIME'S UP. THE FINAL SWARM: the dead stop waiting. Ring the Appointment Bell!,0
+FinalRunners,FinalSwarm,1,*,*,,FreshArrival,3,1.5,1.2,Fresh Arrivals,The Final Swarm brings Fresh Arrivals!,0
+FinalBats,FinalSwarm,3,*,*,,Gravebat,3,2,1.5,Night Flight,The Final Swarm takes wing!,0
+FinalBrutes,FinalSwarm,5,*,*,,Brute,0.5,2,2,Head Office,Head Office has sent Brutes. Ring the bell!,0

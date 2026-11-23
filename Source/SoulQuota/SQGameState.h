@@ -1,0 +1,174 @@
+// Copyright 2026 Jack McGuigan. All rights reserved.
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/GameStateBase.h"
+#include "SQTypes.h"
+#include "SQQuests.h"
+#include "SQMission.h"
+#include "SQGameState.generated.h"
+
+class ASQBoss;
+class ASQLantern;
+class ASQHordeManager;
+class ASQArena;
+class ASQPortal;
+class ASQPlayerState;
+
+/**
+ * Shared run state every player can see. Nov 9 2026 missions: a run is ONE mission stage (Missions.csv). Phase Night = the stage is running,
+ * Boss = the boss fight, Victory / Defeat = the end screen (Shop is no longer used). NightIndex = the current ACT (0..2, a third of the stage
+ * each): the horde's per-night columns, HP / damage steps and gold growth follow it. PhaseTimeLeft / PhaseDuration = the act clock;
+ * StageTime / StageDuration = the whole stage. Quota / Banked = the live Bank Souls objective (0 when none). Defiance = failed objectives.
+ */
+UCLASS()
+class SOULQUOTA_API ASQGameState : public AGameStateBase
+{
+	GENERATED_BODY()
+
+public:
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	UPROPERTY(Replicated) ESQPhase Phase = ESQPhase::Waiting;
+	UPROPERTY(Replicated) int32 NightIndex = 0;
+	UPROPERTY(Replicated) float PhaseTimeLeft = 0.f;
+	UPROPERTY(Replicated) float PhaseDuration = 1.f;
+
+	UPROPERTY(Replicated) int32 Quota = 0;
+	UPROPERTY(Replicated) int32 Banked = 0;
+	UPROPERTY(Replicated) int32 ShopSouls = 0;
+	/** Purchases in the current Death's Office visit (each one raises every price, see ShopPrice) */
+	UPROPERTY(Replicated) int32 ShopBuys = 0;
+	UPROPERTY(Replicated) int32 Defiance = 0;
+	UPROPERTY(Replicated) bool bFinalCall = false;
+
+	UPROPERTY(Replicated) int32 TeamLevel = 1;
+	UPROPERTY(Replicated) int32 TeamXP = 0;
+	UPROPERTY(Replicated) int32 XPToNext = 10;
+
+	UPROPERTY(Replicated) int32 EnemyCount = 0;
+
+	/** Megabonk-style level-up pause: the action is frozen (global time dilation) while players pick cards */
+	UPROPERTY(Replicated) bool bPickPause = false;
+	/** Real seconds left before everyone still choosing gets their first card auto-picked */
+	UPROPERTY(Replicated) float PickPauseTimeLeft = 0.f;
+	/** Humans in this pause, and how many of them have finished all their picks */
+	UPROPERTY(Replicated) int32 PickersTotal = 0;
+	UPROPERTY(Replicated) int32 PickersDone = 0;
+
+	UPROPERTY(Replicated) TObjectPtr<ASQBoss> Boss;
+	UPROPERTY(Replicated) TObjectPtr<ASQLantern> Lantern;
+	UPROPERTY(Replicated) TObjectPtr<ASQHordeManager> Horde;
+	UPROPERTY(Replicated) TObjectPtr<ASQArena> Arena;
+	UPROPERTY(Replicated) bool bEndless = false;
+
+	UPROPERTY(Replicated) FString AlertText;
+	UPROPERTY(Replicated) float AlertServerTime = -100.f;
+	UPROPERTY(Replicated) FString StoryText;
+
+	// ---------------- Economy pass (Nov 7): gold, chests, Difficulty, timeline beats, Appointment Bell, Final Swarm, modifiers
+	/** Raises enemy count / HP and rewards for the rest of the run: spawn rate and gold x(1 + Difficulty), enemy HP x(1 + DifficultyHealthShare x Difficulty) */
+	UPROPERTY(Replicated) float Difficulty = 0.f;
+	/** Contract Clauses (Modifiers.csv row i = bit i), picked by the host in the lobby; fixed for the run */
+	UPROPERTY(Replicated) int32 ModifierMask = 0;
+	/** Midnight passed without the bell: endless escalating spawns until the boss is beaten (or the crew is) */
+	UPROPERTY(Replicated) bool bFinalSwarm = false;
+	/** Seconds since midnight (drives the swarm's escalation and the HUD) */
+	UPROPERTY(Replicated) float FinalSwarmSeconds = 0.f;
+	/** Night progress frozen when the bell was rung (enemy HP / damage ramps hold there during the boss fight) */
+	UPROPERTY(Replicated) float BossNightProgress = 1.f;
+	/** The night's Appointment Bell (boss portal) */
+	UPROPERTY(Replicated) TObjectPtr<ASQPortal> Portal;
+	/** Last timeline beat announced on the HUD (Kind 1 miniboss, 2 swarm, 3 Final Swarm, 4 bell ready, 5 new objective, 6 objective complete, 7 objective failed) */
+	UPROPERTY(Replicated) FString BeatText;
+	UPROPERTY(Replicated) float BeatServerTime = -100.f;
+	UPROPERTY(Replicated) uint8 BeatKind = 0;
+	/** Living timeline miniboss (empty = none) and its health 0..1, for the HUD name bar */
+	UPROPERTY(Replicated) FString MinibossName;
+	UPROPERTY(Replicated) float MinibossHealthFrac = 0.f;
+
+	// ---------------- Missions (Nov 9 2026; SQMission.h). Read by the HUD / menu (UI agent).
+	/** The stage's objectives in order (FSQMissionDirector writes them 4x a second) */
+	UPROPERTY(Replicated) TArray<FSQObjectiveView> Objectives;
+	/** Seconds since the stage began (frozen during the boss fight) / the stage length. Past StageDuration = the Final Swarm (overtime). */
+	UPROPERTY(Replicated) float StageTime = 0.f;
+	UPROPERTY(Replicated) float StageDuration = 0.f;
+	/** Missions.csv id of this run (the host picks it: menu USQMissions::SetPendingMission, or B in the lobby) */
+	UPROPERTY(Replicated) FName MissionId;
+	/** Hard mode (O in the lobby, once the mission is beaten) */
+	UPROPERTY(Replicated) bool bHardMode = false;
+	/** Nov 12 2026: the lobby is being skipped (solo PLAY from the main menu, or RETRY / PLAY AGAIN): the HUD shows a short
+	 *  "rising" card in place of the lobby, and everyone counts as ready. Cleared when the stage starts. */
+	UPROPERTY(Replicated) bool bSkipLobby = false;
+	UPROPERTY(Replicated) ESQRunResult RunResult = ESQRunResult::None;
+	/** Victory / defeat screen numbers (filled by ASQGameMode::EndRun) */
+	UPROPERTY(Replicated) FSQRunStats RunStats;
+	// ---------------- Lantern trail (Nov 12 2026; FSQMissionDirector runs it, ASQLantern and the HUD draw it; Docs/LanternTrail.md)
+	/** The run's lantern sites in lighting order ([0] = the hub). Empty = no trail (Tuning LanternTrail 0): one lantern at the hub. */
+	UPROPERTY(Replicated) TArray<FVector> TrailSites;
+	/** Index of the LIT lantern (the one ASQGameState::Lantern stands on). == TrailSites.Num() once the trail is complete. */
+	UPROPERTY(Replicated) int32 TrailStage = 0;
+	/** Bit i set = lantern i burnt out before its quota was banked (no reward) */
+	UPROPERTY(Replicated) int32 TrailMissedMask = 0;
+	/** Souls banked at the lit lantern / the souls it needs */
+	UPROPERTY(Replicated) int32 TrailBanked = 0;
+	UPROPERTY(Replicated) int32 TrailQuota = 0;
+
+	/** True once every objective is resolved: the Appointment Bell is up (or the stage clock ran out) */
+	UPROPERTY(Replicated) bool bBossReady = false;
+
+	const FSQMissionDef* GetMission() const;
+	/** 0..1 through the whole stage (1 in overtime / the boss fight once the clock ran out) */
+	float StageProgress() const;
+	/** The mission's (and Hard mode's) multiplier for one modifier number: SpawnMult, EnemyDamageMult, GoldMult (1 for the others) */
+	float MissionModValue(float FSQModifierDef::* Field) const;
+	/** Mission horde / boss HP multiplier (HealthMult or BossHealthMult, x Hard) */
+	float MissionHealthMult(bool bBoss) const;
+	/**
+	 * Act ramp smoothing (horde HP): the horde computes (Health + HealthPerNight x act) x (1 + per-minute ramp in the act), which jumps at
+	 * every act change. This returns the factor that eases it log-linearly between act starts, assuming HealthPerNight = StageHpRefRatio x Health.
+	 */
+	float StageHealthSmoothing() const;
+
+	/** Server: Difficulty += Amount (shrines, modifiers). Never below 0. */
+	void AddDifficulty(float Amount);
+	void PushBeat(const FString& Text, uint8 Kind);
+	/** Server: XP held back by the Probation clause (paid out at its time) */
+	int32 HeldXP = 0;
+	/** Server: fractional team XP from the XP bonuses (Night School meta, Study Group augment) */
+	float XPRemainder = 0.f;
+
+	bool HasModifier(int32 Index) const { return Index >= 0 && Index < 31 && (ModifierMask & (1 << Index)) != 0; }
+	/** Product of one Modifiers.csv number over the active clauses (1 when none), x the mission's own multiplier (MissionModValue) */
+	float ModProduct(float FSQModifierDef::* Field) const;
+	/** Largest value of one number over the active clauses (0 when none) */
+	float ModMax(float FSQModifierDef::* Field) const;
+	bool ModAny(bool FSQModifierDef::* Field) const;
+	/** Banked gold multiplier of the active clauses (Tuning ModifierCoinCap) */
+	float CoinMultiplier() const;
+	/** NightSeconds / BalanceNightSeconds (0.1..4): short test nights scale HP steps, boss HP and prices */
+	float NightScale() const;
+	/** Gold multiplier: (1 + Difficulty) x the clauses' GoldMult */
+	float GoldMultiplier() const;
+	/** Coin value growth on the current night: 1 + GoldPerNight x night index */
+	float GoldNightGrowth() const;
+	/** Tuning EconomyBossHealth<N> / EconomyEnemyHealth<N> (act N) x the mission's HP multiplier; the horde's also x StageHealthSmoothing */
+	float EconomyHealthMult(bool bBoss) const;
+	/**
+	 * What a paid chest costs THIS reaper: ChestBasePrice x (1 + ChestPriceK x their paid opens this run) ^ ChestPriceExp,
+	 * capped at ChestPriceCap, x NightScale x the clauses' ChestPriceMult. Per reaper (every reaper has a purse, and co-op coins
+	 * are shared out), so a 4-player crew pays solo prices and nobody's chest makes a teammate's dearer.
+	 */
+	int32 ChestPriceFor(const ASQPlayerState* PS) const;
+
+	/** Server only */
+	void AddTeamXP(int32 Amount);
+	void PushAlert(const FString& Text);
+	void ResetTeamProgress();
+
+	/** 0..1 through the current night */
+	float NightProgress() const;
+
+	/** Current price of Shop.csv row Index: Cost x (1 + ShopPricePerBuy x buys this visit) x (1 + ShopPricePerNight x night) x (1 + ShopPricePerPlayer x extra players) x NightSeconds / BalanceNightSeconds */
+	int32 ShopPrice(int32 Index) const;
+};
