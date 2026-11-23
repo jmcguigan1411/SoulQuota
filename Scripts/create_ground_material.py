@@ -8,6 +8,7 @@ tufts and glowing bits; meshes without vertex colours read as white, so Color al
 Missing -> the game falls back to M_Clay (flat colours). Safe to re-run (skips if it exists;
 delete the asset to rebuild it).
 """
+import os
 import unreal
 
 PATH = "/Game/Materials"
@@ -226,6 +227,9 @@ else:
 #   UV0.y  "wood" weight   -> long staggered planks (PlankL x PlankW cm)
 #   UV1    plaza-local position / plaza radius (|UV1| < 1 inside a plaza) -> a radial mosaic emblem (EmblemSpokes)
 #   UV2    world XY in cm (the pattern space; a UV so the Custom node gets plain floats)
+#   UV3    lane edging (map quality pass, Nov 19 2026): x = cm outside the lane's edge (capped), y = 1 where a lane runs
+#          in the open -> a crisp edging course along every lane: flat edging stones (EdgeStone 1), a dark stringer beam
+#          on the plank quays or a dark border tile (EdgeStart / EdgeEnd cm, EdgeTone = brightness of the course)
 #   Vertex alpha: 1 = dry, lower = wet (tidal mud): darker and glossy
 #   Joints widen with distance and the whole pattern fades out between ~18 m and ~45 m (no moire / shimmer).
 # Parameters (set per map by ASQArena): StoneW, StoneH, StoneStagger, StoneChecker, PlankL, PlankW, EmblemSpokes,
@@ -273,12 +277,14 @@ float lineD = min(ringD, lerp(1.0, spokeD, band));
 float lineE = (1.0 - smoothstep(0.007, 0.016, lineD)) * inE;
 float toneE = 1.0 + (band * (wedge - 0.5) * 0.30 + step(er, 0.16) * 0.14) * inE;
 
-float wA = saturate(Msk.x);
+float eb = smoothstep(EdA - 5.0, EdA + 5.0, Edg.x) * (1.0 - smoothstep(EdB - 5.0, EdB + 5.0, Edg.x)) * saturate(Edg.y);
+float wA = max(saturate(Msk.x), eb * EdS);
 float wB = saturate(Msk.y);
 float tone = lerp(1.0, toneA, wA);
 tone = lerp(tone, toneB, wB);
 tone = lerp(1.0, tone * toneE, fadeT);
 float joint = max(max(jointA * wA, jointB * wB) * (1.0 - inE * band * 0.6), lineE) * fadeJ;
+tone = tone * lerp(1.0, EdT, eb * fadeT);
 return float3(tone * (1.0 - joint * JDk), joint, max(wA, wB));
 """
 
@@ -362,7 +368,7 @@ def build_ground_v3():
     art = node(unreal.MaterialExpressionCustom, -1900, 900)
     art.set_editor_property("description", "SQGroundArt")
     art.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT3)
-    names = ["WXY", "Msk", "Emb", "CDist", "StW", "StH", "Stg", "Chk", "PlL", "PlW", "Spk", "JDk"]
+    names = ["WXY", "Msk", "Emb", "CDist", "StW", "StH", "Stg", "Chk", "PlL", "PlW", "Spk", "JDk", "Edg", "EdA", "EdB", "EdS", "EdT"]
     inputs = []
     for n in names:
         ci = unreal.CustomInput()
@@ -374,8 +380,12 @@ def build_ground_v3():
     link(uv0, "", art, "Msk")
     link(uv1, "", art, "Emb")
     link(dist, "", art, "CDist")
+    uv3 = node(unreal.MaterialExpressionTextureCoordinate, -2500, 1275)   # lane edging: (cm outside the lane edge, on/off)
+    uv3.set_editor_property("coordinate_index", 3)
+    link(uv3, "", art, "Edg")
     params = [("StW", "StoneW", 130.0), ("StH", "StoneH", 85.0), ("Stg", "StoneStagger", 1.0), ("Chk", "StoneChecker", 0.0),
-              ("PlL", "PlankL", 420.0), ("PlW", "PlankW", 44.0), ("Spk", "EmblemSpokes", 8.0), ("JDk", "JointDark", 0.42)]
+              ("PlL", "PlankL", 420.0), ("PlW", "PlankW", 44.0), ("Spk", "EmblemSpokes", 8.0), ("JDk", "JointDark", 0.42),
+              ("EdA", "EdgeStart", 10.0), ("EdB", "EdgeEnd", 60.0), ("EdS", "EdgeStone", 0.0), ("EdT", "EdgeTone", 1.0)]
     for i, (pin, pname, default) in enumerate(params):
         link(scalar(pname, default, -2250, 1350 + i * 90), "", art, pin)
 
@@ -439,11 +449,23 @@ def build_ground_v3():
     unreal.log("Created " + V3_FULL)
 
 
+# The material is rebuilt once whenever its recipe changes (V3_REV): a marker in Saved/SQImport records the revision
+V3_REV = "r2"
+_v3_marker = os.path.join(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_saved_dir()), "SQImport", "groundv3_%s.done" % V3_REV)
+if unreal.EditorAssetLibrary.does_asset_exist(V3_FULL) and not os.path.isfile(_v3_marker):
+    unreal.log("[SoulQuota ground] M_GroundV3 recipe changed (%s) - rebuilding it" % V3_REV)
+    unreal.EditorAssetLibrary.delete_asset(V3_FULL)
 if unreal.EditorAssetLibrary.does_asset_exist(V3_FULL):
     unreal.log_warning(V3_FULL + " already exists - leaving it alone.")
 else:
     try:
         build_ground_v3()
+        try:
+            os.makedirs(os.path.dirname(_v3_marker), exist_ok=True)
+            with open(_v3_marker, "w") as _f:
+                _f.write("M_GroundV3 %s\n" % V3_REV)
+        except Exception as err2:
+            unreal.log_warning("[SoulQuota ground] could not write %s: %s" % (_v3_marker, err2))
     except Exception as err:
         unreal.log_error("[SoulQuota ground] M_GroundV3 failed (%s) - removing it, the terrain keeps using M_GroundV2" % err)
         if unreal.EditorAssetLibrary.does_asset_exist(V3_FULL):

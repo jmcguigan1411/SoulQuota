@@ -612,7 +612,11 @@ def import_park(prefix="Park_", palette="park_palette.png", tex_name="T_Park", m
             log("%s: collision count unavailable: %s" % (name, e))
         if mi is not None:
             try:
-                mesh.set_material(0, mi)
+                # Slot 0 = the palette; a second slot named "...Glow" (lantern heads, lit windows: Set_ / Fair_) keeps the
+                # same instance here and is swapped for a glowing one at runtime (ASQArena::ApplySetGlow)
+                slots = max(1, len(mesh.get_editor_property("static_materials")))
+                for slot in range(slots):
+                    mesh.set_material(slot, mi)
             except Exception as e:
                 log("%s: could not set %s: %s" % (name, mi_name, e))
         eal.save_loaded_asset(mesh)
@@ -648,6 +652,15 @@ def main():
         # (Kay Lousberg; licences in ArtSource/LICENSE_KayKit_*.txt): Dungeon Remastered -> KitD_*, Medieval Hexagon -> KitM_*
         safe(import_park, "KitD_", "kitd_texture.png", "T_KitD", "MI_KitD", True)
         safe(import_park, "KitM_", "kitm_texture.png", "T_KitM", "MI_KitM", True)
+        # Map quality pass (Nov 16 2026): original "Midnight Fairground" set pieces (Fair_*: coffin wheel, tent crypt,
+        # lantern arch / tree, bunting, podium, wreck, stilt house, boat, clock wall, gear bridge, pendulum, pipes...)
+        # and the KayKit atlases recoloured per map (blender_work/mapq/retint.py), used by ASQArena::BuildScenery
+        safe(import_park, "Fair_", "fair_palette.png", "T_Fair", "MI_Fair")
+        for pack in ("KitM", "KitD"):
+            for scheme in ("Graveyard", "Harbour", "Clock"):
+                png = os.path.join(PROP_DIR, "%s_%s.png" % (pack.lower(), scheme.lower()))
+                if os.path.isfile(png):
+                    safe(import_texture, png, "T_%s_%s" % (pack, scheme), True)
         for f in sorted(os.listdir(PROP_DIR)):
             if f.lower().endswith(".fbx"):
                 safe(import_static, os.path.join(PROP_DIR, f), "/Game/Art/Props", "SM_" + os.path.splitext(f)[0])

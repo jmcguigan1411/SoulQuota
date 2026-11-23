@@ -684,5 +684,20 @@ ClockHandEnemyDps,600,Clocktower: damage per second to the horde under a hand
 MapGroundArt,1,Ground art pass (Nov 15 2026): 1 = flat art in the ground itself (M_GroundV3: flagstones / planks / tiles / plaza mosaic / wet mud / moss / lantern wear). 0 = the plain V2 ground
 MapGroundMoss,0.35,Ground art: how strongly moss creeps onto soft ground at the foot of walls (0 = none)
 MapGroundJoint,0.42,Ground art: how dark the joints between stones / planks / tiles are (0 = invisible; 0.9 = black)
-MapScenery,1,Map art pass (Nov 15 2026): density of the standing KayKit scenery (house fronts round plazas / towers / cargo against buildings / wall runs with banners / groves / lane pillars / forest backdrop). 0 = none; 2 = double
+MapScenery,1,Map quality pass (Nov 16 2026): the district recipe (landmark on a podium; six fronts; tall second row; signature Fair_ pieces at the shoulders; stalls in the yard wall; tree line; grave plots; forest backdrop). 1 = on; 0 = none; up to 2 = denser tree lines
 MapKitFrontYaw,-90,Map art pass: yaw offset that turns a KayKit building front toward its plaza (flip to 90 if houses face away)
+MapPodiums,1,Map quality pass (Nov 16 2026): 1 = each district's landmark stands on a stepped stone podium (Fair_Podium) opposite its gate. 0 = on the ground
+MapSetGlow,2.6,Map quality pass: emissive strength of the lantern heads and lit windows on the Set_ / Fair_ pieces (their "Glow" material slot). 0 = unlit
+MapDistrictLights,2,Map quality pass: warm point lights per district (1 = the landmark's door; 2 = + the gate). No shadows. 0 = none
+MapDistrictLightRadius,1400,Map quality pass: reach of those district lights (cm)
+MapSpanSpacing,1800,Map quality pass: a bunting span (Biomes.csv SetPieces role Span) crosses each lane every this many cm; never within 13 m of a plaza
+MapSpanMax,24,Map quality pass: most bunting spans on one map
+MapSceneryGround,1,Map quality pass: ground art under the planned scenery (paved promenade behind the yard wall; aprons round buildings; worn trails to the shoulders; moss rings round trees and grave plots; contact shade). 0 = none
+MapGroundBlotch,0.55,Map quality pass: strength of the big painterly ground blotches (pale clearings / dark hollows) between the districts. 0 = none
+MapPavedStone,0.9,Map quality pass: how far hub and plaza floors take the biome's cap-stone colour (MapCapColor) instead of the old path / grass mix. 0 = old look
+MapLaneEdging,1,Map quality pass (iteration 6): a crisp edging course along every lane drawn in the ground itself (Graveyard edging stones; Harbour stringer beam; Clocktower border tile). 0 = none
+MapTileYard,0.34,Map quality pass (iteration 7): the Clocktower's open ground is a paved yard: strength of the faint setts drawn everywhere (lanes and plazas keep full tiles). 0 = bare ground
+MapWaysideSpacing,2400,Map quality pass (iteration 7): a wayside piece (Biomes.csv SetPieces role Wayside: statue / mausoleum / beached boat / signal mast / chimney / gear stack) stands beside each lane every this many cm; alternating sides
+MapWaysideOff,950,Map quality pass: how far back from the lane edge a wayside piece stands (cm)
+MapWaysideMax,16,Map quality pass: most wayside pieces on one map
+MapDistrictVariety,1,Map quality pass (iteration 8): 1 = no two districts alike (landmarks rotate through the map's three; fronts rotate round the ring; every other district is mirrored and swaps in the second signature piece: carousel / diving bell / orrery). 0 = every district the same recipe

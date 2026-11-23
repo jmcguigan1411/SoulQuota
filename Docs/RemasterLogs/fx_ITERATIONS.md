@@ -1,0 +1,13 @@
+# Effects: ten render / look / critique / fix passes (Nov 19 2026)
+
+Preview = Blender (bpy 5.2, EEVEE) mirror of ASQSparks + FxRecipes.csv, the game's kit meshes, additive glow, real R_* reaper and Zombie meshes,
+chase camera (pivot 90 cm, 850 cm back, 18 degrees down). Sheets are cropped to FOV 60 so the effect is big enough to judge; `_true` sheets use the game's FOV 90.
+Left half of the ground is plaza grey, right half is dark grass, so every frame shows both backgrounds.
+
+| Iter | Image(s) | What I saw | What I changed |
+|---|---|---|---|
+| 1 | FX_prims_iter1 | Baseline (Nov 12 build helpers). Swings are flat white ribbons made of stretched balls, shockwaves are rings of balls, everything blows out to white. | Nothing: reference. |
+| 2 | FX_prims_iter2 | New motion-kit meshes + rewritten helpers. Swoosh reads as a 60 cm tall white wall, wave ring too fat, still all white. | Built Swoosh / Arc / Streak / Wave / Spikes / Ember / Petal / Chevron / Wisp meshes; per-particle fade; SwingArc, Shockwave, Flash, Impact, Glint, Streak redrawn. |
+| 3 | FX_prims_iter3, FX_Attack_iter3 | Flat swoosh + thin hot edge works; colour holds. Arc weapons good. Projectile / turret / chain / beam accents nearly invisible; big flat Star and Spikes ground marks look cheap; plain wave rings still read as circles. | Swoosh flattened, separate thin Arc edge, glow 1.25 -> 1.0 and bucket factors down, signature weapon wears the reaper palette, FxRecipes.csv + interpreter (21 reapers x Attack/E/R). |
+| 4 | FX_Attack_iter4, FX_E_iter4 | Muzzle flick helps but is small. Toothed ring adds bite but is stark white and lingers. Seal / Rune marks are solid slabs (red square, green striped block). Pillar is a hairline. From behind, forward line and chain casts vanish (foreshortened to ~20 px). | Teeth ring mesh, sig() flick on every non-swing weapon, marks to Alt colour, thicker bolts, orbit arcs, stacked aura waves. |
+| 5 | FX_E_iter5, FX_Attack_iter5, FX_events_iter5 | Line / chain casts now read (lance + light columns + end pillar). Thin Sigil mark is the best thing so far. Flash was a plain white ball. Shared events had never been written to the CSV (generator bug) so nothing played. Collect / soul / gold / bank / death far too small; lantern-spent is a plain circle. | Thin-line marks Sigil / Cog / Web / Casket replace slabs; Pillars + Lance verbs (vertical shapes survive the chase camera); streak width in real cm; flash orb smaller, starburst carries it; generator fixed (78 shared rows); ImpactLight / ImpactHeavy / ShrinePulse / HazardPulse / SoulCollect / GoldCollect; everyday sparks become diamond motes; hit sparks -> starburst Impact; death wisp; chest / lantern / shrine / level-up / soul hooks. |

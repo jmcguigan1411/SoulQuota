@@ -385,6 +385,7 @@ namespace
 		TArray<FVector2D> UVs;
 		TArray<FVector2D> UV1s;   // ground art: plaza-local emblem coordinates
 		TArray<FVector2D> UV2s;   // ground art: world XY in cm (pattern space)
+		TArray<FVector2D> UV3s;   // ground art: lane edging (cm outside the lane edge, on / off)
 		TArray<FLinearColor> Colors;
 	};
 }
@@ -646,6 +647,8 @@ void ASQArena::Rebuild()
 	const int32 TerrainSeed = (Seed ^ 0x1B873593) & 0x7fffffff;
 	MapSeed = Seed;
 	PlanLamps(D);
+	// Map quality pass: plan the district scenery now, so the terrain paint below can pave and shade under it
+	PlanScenery(D);
 	// Lamp blockers (built in BuildDressing) count as footprints from the start, so props keep a gap to them too
 	for (const FVector& LampSpot : LampSpots) BlockerSpots.Add(FVector(LampSpot.X, LampSpot.Y, 30.0));
 
@@ -3714,6 +3717,36 @@ void ASQArena::BuildTerrainMesh(const FSQArenaPalette& Pal, int32 TerrainSeed)
 			}
 		}
 	}
+	// Map quality pass (Nov 16 2026): the planned scenery (PlanScenery) is rasterised the same way, so the paint can
+	// pave an apron round every building, shade the contact under it and ring the trees and grave plots with moss.
+	TArray<float> ApronNear;   // distance beyond the footprint of the nearest building / podium
+	TArray<float> SoftNear;    // ... of the nearest tree or grave plot
+	ApronNear.Init(1.e9f, Row * Row);
+	SoftNear.Init(1.e9f, Row * Row);
+	const float SiteReach = 340.f;
+	for (const FSQScenerySite& Site : ScenerySites)
+	{
+		if (Site.Kind == SiteSpan || Site.Kind == SiteOnPodium) continue;
+		const bool bSoft = Site.Kind == SiteTree || Site.Kind == SiteTreeLine || Site.Kind == SitePlot;
+		TArray<float>& Near = bSoft ? SoftNear : ApronNear;
+		const float Pad = Site.Foot + SiteReach;
+		const int32 X0 = FMath::Clamp(FMath::FloorToInt((static_cast<float>(Site.At.X) - Pad - GridMin) * InvCellSize), 0, GridN);
+		const int32 X1 = FMath::Clamp(FMath::CeilToInt((static_cast<float>(Site.At.X) + Pad - GridMin) * InvCellSize), 0, GridN);
+		const int32 Y0 = FMath::Clamp(FMath::FloorToInt((static_cast<float>(Site.At.Y) - Pad - GridMin) * InvCellSize), 0, GridN);
+		const int32 Y1 = FMath::Clamp(FMath::CeilToInt((static_cast<float>(Site.At.Y) + Pad - GridMin) * InvCellSize), 0, GridN);
+		for (int32 SY = Y0; SY <= Y1; ++SY)
+		{
+			for (int32 SX = X0; SX <= X1; ++SX)
+			{
+				const float SiteD = FMath::Sqrt(FMath::Square(GridMin + SX * CellSize - static_cast<float>(Site.At.X)) + FMath::Square(GridMin + SY * CellSize - static_cast<float>(Site.At.Y))) - Site.Foot;
+				float& Slot = Near[SY * Row + SX];
+				Slot = FMath::Min(Slot, SiteD);
+			}
+		}
+	}
+	const float SceneryArt = D ? FMath::Clamp(D->Tune(TEXT("MapSceneryGround"), 1.f), 0.f, 1.f) : 1.f;
+	const float Blotch = D ? FMath::Clamp(D->Tune(TEXT("MapGroundBlotch"), 0.55f), 0.f, 1.f) : 0.55f;
+	const float PavedStone = D ? FMath::Clamp(D->Tune(TEXT("MapPavedStone"), 0.9f), 0.f, 1.f) : 0.9f;
 	// Ground art pass (Nov 15 2026): flat art in the surface itself (M_GroundV3 draws it from these masks; older
 	// materials ignore them). VMask.X = stone (flagstones / tiles), VMask.Y = wood (planks), VEmblem = plaza-local
 	// position / emblem radius (the mosaic), vertex alpha below 1 = wet tidal mud. Plus painted moss along walls and
@@ -3736,6 +3769,13 @@ void ASQArena::BuildTerrainMesh(const FSQArenaPalette& Pal, int32 TerrainSeed)
 	VColors.SetNumUninitialized(Row * Row);
 	VMask.Init(FVector2D::ZeroVector, Row * Row);
 	VEmblem.Init(FVector2D(9.0, 9.0), Row * Row);
+	// Map quality pass (iteration 6): every lane is BUILT. A crisp edging course runs along both sides (M_GroundV3 draws it
+	// from UV3: flat edging stones on the Graveyard's dirt lanes, a dark stringer beam on the Harbour's plank quays, a
+	// dark border tile on the Clocktower). Flat art in the surface: nothing to pick up, nothing to trip on.
+	const float LaneEdging = D ? FMath::Clamp(D->Tune(TEXT("MapLaneEdging"), 1.f), 0.f, 1.f) : 1.f;
+	const float TileYard = D ? FMath::Clamp(D->Tune(TEXT("MapTileYard"), 0.34f), 0.f, 1.f) : 0.34f;
+	TArray<FVector2D> VEdge;
+	VEdge.Init(FVector2D(300.0, 0.0), Row * Row);
 	for (int32 IY = 0; IY <= GridN; ++IY)
 	{
 		const float VY = GridMin + IY * CellSize;
@@ -3762,6 +3802,15 @@ void ASQArena::BuildTerrainMesh(const FSQArenaPalette& Pal, int32 TerrainSeed)
 			VC *= 1.f + 0.07f * N2;
 			// Bare-earth patches where two noise bands overlap (breaks the lawn up without adding contrast)
 			VC = FMath::Lerp(VC, BareEarth, 0.6f * Smooth01((N3 + 0.5f * N2 - 0.18f) / 0.22f));
+			// Map quality pass: big painterly blotches, so the ground between districts is never one flat tone: pale
+			// clearings in the tier-top colour and dark hollows in the basin colour (flat paint, low contrast)
+			if (Blotch > 0.f)
+			{
+				const float NClear = FMath::PerlinNoise2D(FVector2D(VX * 0.00077f + NoiseOff * 1.9f, VY * 0.00077f - NoiseOff * 0.6f));
+				const float NHollow = FMath::PerlinNoise2D(FVector2D(VX * 0.00059f - NoiseOff * 1.1f, VY * 0.00059f + NoiseOff * 2.3f));
+				VC = FMath::Lerp(VC, Muted(Pal.Top) * 0.92f, Blotch * Smooth01((NClear + 0.3f * N3 - 0.16f) / 0.3f));
+				VC = FMath::Lerp(VC, Muted(Pal.Basin) * 0.8f, 0.9f * Blotch * Smooth01((NHollow - 0.22f) / 0.3f));
+			}
 			// Tier tops pale, ramps stony
 			VC = FMath::Lerp(VC, Muted(Pal.Top) * (0.92f + 0.06f * N2), 0.7f * Smooth01((H - 40.f) / TopRef));
 			VC = FMath::Lerp(VC, Muted(Pal.Cliff) * 1.1f, Smooth01((Slope - 0.12f) / 0.16f));
@@ -3786,6 +3835,7 @@ void ASQArena::BuildTerrainMesh(const FSQArenaPalette& Pal, int32 TerrainSeed)
 			const float CentreD = FMath::Sqrt(VX * VX + VY * VY);
 			// (no bright edge line any more: the flagstones are the plaza; the rim is just trodden a little darker)
 			VC = FMath::Lerp(VC, Muted(Paved) * 0.85f, 0.35f * (1.f - Smooth01((CentreD - HubRadius) / 80.f)));
+			VC = FMath::Lerp(VC, Muted(Pal.Cap) * 0.9f, PavedStone * (1.f - Smooth01((CentreD - HubRadius) / 80.f)));
 			VC *= 1.f - 0.16f * (1.f - Smooth01(FMath::Abs(CentreD - HubRadius + N2 * 40.f) / 110.f));
 			float PavedW = 1.f - Smooth01((CentreD - HubRadius) / 70.f);   // made surfaces: hub, plazas, (planked / tiled) lanes
 			const float HubEmblemR = HubRadius * 0.82f;
@@ -3798,6 +3848,7 @@ void ASQArena::BuildTerrainMesh(const FSQArenaPalette& Pal, int32 TerrainSeed)
 				if (ZoneD > Zone.Radius + 120.f) continue;
 				const bool bBoss = Zone.Kind == ESQZoneKind::Boss;
 				VC = FMath::Lerp(VC, Muted(bBoss ? BossFloor : Paved) * 0.85f, (bBoss ? 0.45f : 0.5f) * (1.f - Smooth01((ZoneD - Zone.Radius) / 60.f)));
+				if (!bBoss) VC = FMath::Lerp(VC, Muted(Pal.Cap) * 0.9f, PavedStone * (1.f - Smooth01((ZoneD - Zone.Radius) / 60.f)));
 				// Rim: trodden dark; the boss floor keeps a deep crimson band (a warning you can read, not a neon line)
 				const float RimBand = 1.f - Smooth01(FMath::Abs(ZoneD - Zone.Radius + N2 * 35.f) / (bBoss ? 90.f : 100.f));
 				if (bBoss) VC = FMath::Lerp(VC, BossRim, 0.55f * RimBand);
@@ -3838,6 +3889,23 @@ void ASQArena::BuildTerrainMesh(const FSQArenaPalette& Pal, int32 TerrainSeed)
 					VC *= 1.f - 0.12f * (1.f - Smooth01(FMath::Abs(LaneEdge - LaneHalfWidth) / 100.f));
 					if (bPlankMap || bTileMap) PavedW = FMath::Max(PavedW, LaneMix);
 				}
+				if (LaneEdging > 0.f && LaneD < LaneHalfWidth + 320.f)
+				{
+					// Only where the lane runs in the open (not across the hub, a plaza or the road)
+					float Open = Smooth01((CentreD - (HubRadius + 40.f)) / 120.f) * Smooth01((RoadD - (RoadHalfWidth + 60.f)) / 120.f);
+					for (const FSQMapZone& Zone : MapZones)
+					{
+						if (Zone.Kind == ESQZoneKind::Hub) continue;
+						Open *= Smooth01((static_cast<float>(FVector2D::Distance(Zone.Centre, VP)) - (Zone.Radius + 40.f)) / 120.f);
+					}
+					VEdge[Idx] = FVector2D(FMath::Min(LaneD - LaneHalfWidth, 300.f), Open * LaneEdging);
+					// Graveyard: the dirt lane gets a soft stony verge under its edging stones
+					if (!bPlankMap && !bTileMap)
+					{
+						const float Verge = Smooth01((LaneD - (LaneHalfWidth - 60.f)) / 70.f) * (1.f - Smooth01((LaneD - (LaneHalfWidth + 40.f)) / 90.f));
+						VC = FMath::Lerp(VC, Muted(Pal.Cap) * 0.78f, 0.55f * Open * LaneEdging * Verge);
+					}
+				}
 			}
 			for (const FVector& Lamp : LampSpots)
 			{
@@ -3845,6 +3913,45 @@ void ASQArena::BuildTerrainMesh(const FSQArenaPalette& Pal, int32 TerrainSeed)
 				if (LD2 >= PoolR * PoolR) continue;
 				const float Pool = FMath::Square(1.f - FMath::Sqrt(LD2) / PoolR);
 				VC = VC * (1.f + 0.45f * Pool) + Pal.Lamp * (0.07f * Pool);
+			}
+			// Map quality pass: the districts' own ground. A paved promenade between the yard wall and the house fronts,
+			// worn trails from the gate out to the shoulders, an apron of paving round every building.
+			if (SceneryArt > 0.f)
+			{
+				for (int32 DistrictIdx = 0; DistrictIdx < Districts.Num(); ++DistrictIdx)
+				{
+					if (!DistrictFrontAng.IsValidIndex(DistrictIdx) || DistrictFrontAng[DistrictIdx] < -50.f) continue;
+					const FSQMapZone& Zone = MapZones[Districts[DistrictIdx].Zone];
+					const float ZoneD = static_cast<float>(FVector2D::Distance(Zone.Centre, VP));
+					if (ZoneD < Zone.Radius || ZoneD > Zone.Radius + 1300.f) continue;
+					const float Ref = DistrictGateAngle(DistrictIdx) + PI;
+					const float DAng = FMath::FindDeltaAngleRadians(Ref, FMath::Atan2(VY - static_cast<float>(Zone.Centre.Y), VX - static_cast<float>(Zone.Centre.X)));
+					const float AbsDeg = FMath::RadiansToDegrees(FMath::Abs(DAng));
+					const float Prom = Smooth01((ZoneD - (Zone.Radius + 40.f)) / 80.f) * (1.f - Smooth01((ZoneD + N3 * 100.f - (Zone.Radius + 460.f)) / 160.f))
+						* (1.f - Smooth01((AbsDeg - 112.f) / 8.f));
+					if (Prom > 0.f)
+					{
+						VC = FMath::Lerp(VC, Muted(Pal.Cap) * 0.76f, 0.92f * SceneryArt * Prom);
+						PavedW = FMath::Max(PavedW, 0.92f * SceneryArt * Prom);
+					}
+					if (AbsDeg > 104.f && AbsDeg < 176.f)
+					{
+						const float TrailR = Zone.Radius + 840.f + 180.f * FMath::Sin(FMath::DegreesToRadians(AbsDeg * 2.f)) + N3 * 80.f;
+						const float Trail = 1.f - Smooth01((FMath::Abs(ZoneD - TrailR) - 80.f) / 90.f);
+						VC = FMath::Lerp(VC, RoadTone * 0.9f, 0.8f * SceneryArt * Trail * (1.f - PavedW));
+					}
+				}
+				if (ApronNear[Idx] < SiteReach)
+				{
+					const float Apron = 0.9f * SceneryArt * (1.f - Smooth01((ApronNear[Idx] + N3 * 90.f - 100.f) / 160.f));
+					VC = FMath::Lerp(VC, Muted(Pal.Cap) * 0.72f, Apron);
+					PavedW = FMath::Max(PavedW, Apron);
+				}
+				if (SoftNear[Idx] < SiteReach)
+				{
+					const float Ring = 1.f - Smooth01((SoftNear[Idx] + N3 * 80.f - 40.f) / 200.f);
+					VC = FMath::Lerp(VC, Moss * 0.9f, 0.55f * SceneryArt * Ring * (1.f - PavedW));
+				}
 			}
 			// Ground art: moss creeps out from the foot of every wall onto soft ground (never onto paving)
 			if (WallNear[Idx] < WallReach && GroundArt > 0.f)
@@ -3866,9 +3973,17 @@ void ASQArena::BuildTerrainMesh(const FSQArenaPalette& Pal, int32 TerrainSeed)
 				VC = FMath::Lerp(VC, Mud * (1.f + 0.08f * N2), 0.75f * Wet);
 				VC = FMath::Lerp(VC, PlankTone * (1.f + 0.05f * N3), 0.55f * GroundArt * PavedW * (1.f - Wet));
 			}
+			// (iteration 7) the Clocktower's open ground is a paved yard: faint setts everywhere, full tiles on lanes and plazas
+			if (bTileMap && FMath::Abs(SkateH) < 2.f && !bWet) PavedW = FMath::Max(PavedW, TileYard);
 			VMask[Idx] = bPlankMap ? FVector2D(0.0, GroundArt * PavedW * (1.f - Wet)) : FVector2D(GroundArt * PavedW, 0.0);
 			// Contact shade: the ground darkens toward every wall, so walls sit in the ground instead of floating on it
 			if (WallNear[Idx] < WallReach) VC *= 1.f - WallShade * FMath::Square(1.f - FMath::Max(0.f, WallNear[Idx]) / WallReach);
+			// Map quality pass: contact shade under the planned scenery, so buildings and trees sit in the ground
+			if (SceneryArt > 0.f)
+			{
+				if (ApronNear[Idx] < 180.f) VC *= 1.f - 0.42f * SceneryArt * FMath::Square(1.f - FMath::Max(0.f, ApronNear[Idx] + 30.f) / 210.f);
+				if (SoftNear[Idx] < 180.f) VC *= 1.f - 0.3f * SceneryArt * FMath::Square(1.f - FMath::Max(0.f, SoftNear[Idx] + 30.f) / 210.f);
+			}
 			// Edge framing (map remaster): a deep, wide dark band pulls the eye to the playfield and frames the arena
 			const float EdgeDist = Half - FMath::Max(FMath::Abs(VX), FMath::Abs(VY));
 			VC *= FMath::Lerp(EdgeDarken, 1.f, Smooth01(EdgeDist / EdgeBand));
@@ -3915,6 +4030,7 @@ void ASQArena::BuildTerrainMesh(const FSQArenaPalette& Pal, int32 TerrainSeed)
 				Sec.UVs.Add(VMask[Idx]);
 				Sec.UV1s.Add(VEmblem[Idx]);
 				Sec.UV2s.Add(FVector2D(WX, WY));
+				Sec.UV3s.Add(VEdge[Idx]);
 				Sec.Colors.Add(VColors[Idx]);
 			}
 			// Diagonal v00 -> v11, matching GroundZ(). UE's front face for an upward-facing triangle (A, B, C) has
@@ -3941,6 +4057,11 @@ void ASQArena::BuildTerrainMesh(const FSQArenaPalette& Pal, int32 TerrainSeed)
 		ArtMID->SetScalarParameterValue(TEXT("StoneChecker"), bTileMap ? 0.16f : 0.f);
 		ArtMID->SetScalarParameterValue(TEXT("EmblemSpokes"), bPlankMap ? 16.f : (bTileMap ? 12.f : 8.f));
 		ArtMID->SetScalarParameterValue(TEXT("JointDark"), D ? FMath::Clamp(D->Tune(TEXT("MapGroundJoint"), 0.42f), 0.f, 0.9f) : 0.42f);
+		// Lane edging course: stones just outside the dirt lane / a beam on the plank edge / a border tile inside the tiled lane
+		ArtMID->SetScalarParameterValue(TEXT("EdgeStart"), bPlankMap ? -20.f : (bTileMap ? -34.f : 8.f));
+		ArtMID->SetScalarParameterValue(TEXT("EdgeEnd"), bPlankMap ? 16.f : (bTileMap ? -6.f : 62.f));
+		ArtMID->SetScalarParameterValue(TEXT("EdgeStone"), (bPlankMap || bTileMap) ? 0.f : 1.f);
+		ArtMID->SetScalarParameterValue(TEXT("EdgeTone"), bPlankMap ? 0.55f : (bTileMap ? 0.7f : 1.2f));
 		SharedMID = ArtMID;
 		UE_LOG(LogSQ, Log, TEXT("Arena: ground art on (M_GroundV3, %s)"), bPlankMap ? TEXT("planks") : (bTileMap ? TEXT("tiles") : TEXT("flagstones")));
 	}
@@ -3955,7 +4076,7 @@ void ASQArena::BuildTerrainMesh(const FSQArenaPalette& Pal, int32 TerrainSeed)
 	{
 		const FSQTerrainSection& Sec = Sections[Kind];
 		if (Sec.Tris.Num() == 0) continue;
-		Terrain->CreateMeshSection_LinearColor(SectionIndex, Sec.Verts, Sec.Tris, Sec.Normals, Sec.UVs, Sec.UV1s, Sec.UV2s, TArray<FVector2D>(),
+		Terrain->CreateMeshSection_LinearColor(SectionIndex, Sec.Verts, Sec.Tris, Sec.Normals, Sec.UVs, Sec.UV1s, Sec.UV2s, Sec.UV3s,
 			Sec.Colors, NoTangents, true);
 		Terrain->SetMaterial(SectionIndex, SharedMID ? SharedMID : SQ::ColorMID(this, SectionColor[Kind]));
 		++SectionIndex;
@@ -5196,283 +5317,631 @@ void ASQArena::PlanParkSpots(const USQData* D, FRandomStream& LR)
 	}
 }
 
-bool ASQArena::PlaceSetPiece(UStaticMesh* Mesh, float X, float Y, float YawDeg, float FootR, bool bFade, float Scale)
+UStaticMeshComponent* ASQArena::PlaceSetPiece(UStaticMesh* Mesh, float X, float Y, float YawDeg, float FootR, bool bFade, float Scale, float ZOff, UMaterialInstanceDynamic* InMID)
 {
-	if (!Mesh) return false;
-	const FTransform Xf(FRotator(0.f, YawDeg, 0.f), FVector(X, Y, GroundZ(X, Y) - 6.f), FVector(Scale));
-	UStaticMeshComponent* Part = AddArtPart(Mesh, Xf, nullptr, true); // the mesh carries MI_Set and its UCX hulls
-	if (!Part) return false;
+	if (!Mesh) return nullptr;
+	const FTransform Xf(FRotator(0.f, YawDeg, 0.f), FVector(X, Y, GroundZ(X, Y) - 6.f + ZOff), FVector(Scale));
+	UStaticMeshComponent* Part = AddArtPart(Mesh, Xf, InMID, true); // the mesh carries its MI and its UCX hulls
+	if (!Part) return nullptr;
 	Part->SetCastShadow(true);
 	Part->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 	if (bFade) MarkFadeable(Part);
+	if (!InMID) ApplySetGlow(Part);
 	PropBlockers.Add(Part);
 	if (FootR > 0.f)
 	{
 		BlockerSpots.Add(FVector(X, Y, FootR));
 		SetMarks.Add(FVector(X, Y, FootR));
 	}
-	return true;
+	return Part;
 }
 
-int32 ASQArena::BuildScenery(const USQData* D)
+void ASQArena::ApplySetGlow(UMeshComponent* Comp)
 {
-	// Map art pass (Nov 15 2026): the map should be full of art. Everything here STANDS (buildings, towers, walls,
-	// trees, stacked cargo pushed up against a building): nothing small lies loose on open floor, so nothing can be
-	// mistaken for a pickup. Meshes are two more CC0 KayKit packs (same artist and style as the Halloween kit):
-	// Dungeon Remastered (KitD_*) and Medieval Hexagon (KitM_*), imported by Scripts/import_art.py with their own
-	// textures. Seeded from the map seed, so server and clients build the same scenery; each piece blocks, registers a
-	// horde footprint and fades when it sits between the camera and your reaper. Missing meshes are skipped.
+	// Set_ / Fair_ meshes put their lantern heads and lit windows on a second material slot named "...Glow": that slot
+	// gets the same palette texture with emissive Glow (M_ArtTint), so lanterns and windows shine and bloom at night.
+	if (!Comp || GetNetMode() == NM_DedicatedServer) return;
+	const USQData* D = USQData::Get(this);
+	const float Glow = D ? D->Tune(TEXT("MapSetGlow"), 3.f) : 3.f;
+	if (Glow <= 0.f) return;
+	const UStaticMeshComponent* SMC = Cast<UStaticMeshComponent>(Comp);
+	const UStaticMesh* Mesh = SMC ? SMC->GetStaticMesh() : nullptr;
+	if (!Mesh) return;
+	const FName TexName = Mesh->GetName().Contains(TEXT("Fair_")) ? FName(TEXT("T_Fair")) : FName(TEXT("T_Set"));
+	const TArray<FName> SlotNames = Comp->GetMaterialSlotNames();
+	for (const FName& SlotName : SlotNames)
+	{
+		if (!SlotName.ToString().Contains(TEXT("Glow"))) continue;
+		const int32 SlotIndex = Comp->GetMaterialIndex(SlotName);
+		if (SlotIndex == INDEX_NONE) continue;
+		UMaterialInstanceDynamic* GlowMID = SetGlowMIDs.FindRef(TexName).Get();
+		if (!GlowMID)
+		{
+			UTexture* Tex = LoadObject<UTexture>(nullptr, *FString::Printf(TEXT("/Game/Art/Textures/%s.%s"), *TexName.ToString(), *TexName.ToString()), nullptr, LOAD_NoWarn | LOAD_Quiet);
+			if (!Tex) return;
+			GlowMID = SQArt::TintMID(this, Tex, FLinearColor::White);
+			if (!GlowMID) return;
+			GlowMID->SetScalarParameterValue(TEXT("Glow"), Glow);
+			GlowMID->SetScalarParameterValue(TEXT("Rim"), 0.f);
+			SetGlowMIDs.Add(TexName, GlowMID);
+		}
+		Comp->SetMaterial(SlotIndex, GlowMID);
+	}
+}
+
+float ASQArena::DistrictGateAngle(int32 DistrictIdx) const
+{
+	// Where the district's lane reaches its plaza, as an angle round the plaza centre (the hub side when there is no lane)
+	const FSQDistrict& Dist = Districts[DistrictIdx];
+	const FSQMapZone& Zone = MapZones[Dist.Zone];
+	for (const FSQLane& Lane : Lanes)
+	{
+		if (Lane.District != DistrictIdx || Lane.Pts.Num() < 2) continue;
+		for (int32 i = 1; i < Lane.Pts.Num(); ++i)
+		{
+			if (FVector2D::Distance(Lane.Pts[i], Zone.Centre) > Zone.Radius + 200.f) continue;
+			return FMath::Atan2(static_cast<float>(Lane.Pts[i].Y - Zone.Centre.Y), static_cast<float>(Lane.Pts[i].X - Zone.Centre.X));
+		}
+		break;
+	}
+	const FVector2D Out = Zone.Centre.GetSafeNormal();
+	return FMath::Atan2(static_cast<float>(Out.Y), static_cast<float>(Out.X)) + PI;
+}
+
+void ASQArena::PlanScenery(const USQData* D)
+{
+	ScenerySites.Reset();
+	DistrictFrontAng.Init(-100.f, Districts.Num());
 	const float Density = FMath::Clamp(D->Tune(TEXT("MapScenery"), 1.f), 0.f, 2.f);
-	if (Density <= 0.f || GridN <= 0) return 0;
-	const float FrontYaw = D->Tune(TEXT("MapKitFrontYaw"), -90.f); // the kit's front is +Y after import
+	if (Density <= 0.f || GridN <= 0 || SetRoles.Num() == 0 || D->Tune(TEXT("MapSetPieces"), 1.f) < 0.5f) return;
+	// The recipe needs the Fair_ kit (Scripts/setup_project.py imports it); without it the older set-piece path runs alone
+	if (!SQArt::Prop(FName(TEXT("Fair_Podium")))) return;
 	const bool bHarbour = MapShape == FName(TEXT("Causeways"));
 	const bool bClock = MapShape == FName(TEXT("Climb"));
-	struct FKit { const TCHAR* Name; float Height; };
-	static const FKit GraveHouses[] = { { TEXT("KitM_church_red"), 1150.f }, { TEXT("KitM_home_A_blue"), 700.f }, { TEXT("KitM_home_B_red"), 820.f },
-		{ TEXT("KitM_tavern_red"), 900.f }, { TEXT("KitM_destroyed"), 620.f }, { TEXT("KitM_well_blue"), 380.f } };
-	static const FKit GraveTowers[] = { { TEXT("KitM_tower_A_blue"), 1700.f }, { TEXT("KitM_tower_B_red"), 1900.f }, { TEXT("KitM_windmill_red"), 1500.f } };
-	static const FKit GraveYard[] = { { TEXT("KitD_barrel_small_stack"), 175.f }, { TEXT("KitD_crates_stacked"), 215.f }, { TEXT("KitM_tent"), 330.f },
-		{ TEXT("KitM_weaponrack"), 190.f }, { TEXT("KitM_wheelbarrow"), 120.f } };
-	static const FKit HarbourHouses[] = { { TEXT("KitM_lumbermill_red"), 1050.f }, { TEXT("KitM_watermill_blue"), 980.f }, { TEXT("KitM_market_blue"), 660.f },
-		{ TEXT("KitM_blacksmith_blue"), 720.f }, { TEXT("KitM_barracks_blue"), 1000.f }, { TEXT("KitM_home_B_red"), 820.f } };
-	static const FKit HarbourTowers[] = { { TEXT("KitM_tower_B_red"), 1900.f }, { TEXT("KitM_tower_A_blue"), 1700.f } };
-	static const FKit HarbourYard[] = { { TEXT("KitD_box_stacked"), 330.f }, { TEXT("KitD_crates_stacked"), 215.f }, { TEXT("KitD_keg_decorated"), 205.f },
-		{ TEXT("KitD_barrel_large"), 200.f }, { TEXT("KitD_barrel_small_stack"), 175.f } };
-	static const FKit ClockHouses[] = { { TEXT("KitM_blacksmith_blue"), 720.f }, { TEXT("KitM_scaffolding"), 860.f }, { TEXT("KitM_stage_B"), 430.f },
-		{ TEXT("KitM_tavern_red"), 900.f }, { TEXT("KitM_barracks_blue"), 1000.f }, { TEXT("KitM_home_A_blue"), 700.f } };
-	static const FKit ClockTowers[] = { { TEXT("KitM_castle_red"), 2600.f }, { TEXT("KitM_tower_B_red"), 2200.f }, { TEXT("KitM_windmill_red"), 1700.f },
-		{ TEXT("KitM_tower_A_blue"), 1800.f } };
-	static const FKit ClockYard[] = { { TEXT("KitD_crates_stacked"), 215.f }, { TEXT("KitD_keg_decorated"), 205.f }, { TEXT("KitM_weaponrack"), 190.f },
-		{ TEXT("KitD_pillar"), 400.f }, { TEXT("KitD_barrel_large"), 200.f } };
-	static const FKit WallKit[] = { { TEXT("KitD_wall"), 420.f }, { TEXT("KitD_wall_arched"), 420.f }, { TEXT("KitD_wall_window_open"), 420.f },
-		{ TEXT("KitD_wall_broken"), 420.f }, { TEXT("KitD_wall_doorway"), 420.f }, { TEXT("KitD_wall_scaffold"), 420.f },
-		{ TEXT("KitD_wall_archedwindow_gated_scaffold"), 420.f } };
-	static const FKit BannerKit[] = { { TEXT("KitD_banner_patternA_red"), 0.f }, { TEXT("KitD_banner_patternB_blue"), 0.f }, { TEXT("KitD_banner_shield_red"), 0.f },
-		{ TEXT("KitD_banner_triple_blue"), 0.f }, { TEXT("KitD_banner_thin_white"), 0.f } };
-	static const FKit TreeKit[] = { { TEXT("KitM_tree_single_A"), 720.f }, { TEXT("KitM_tree_single_B"), 660.f } };
-	static const FKit PillarKit[] = { { TEXT("KitD_pillar_decorated"), 480.f }, { TEXT("KitD_pillar"), 440.f } };
-	static const FKit BackKit[] = { { TEXT("KitM_trees_A_large"), 1300.f }, { TEXT("KitM_trees_B_large"), 1600.f }, { TEXT("KitM_trees_A_medium"), 1500.f } };
-	struct FKitMesh { UStaticMesh* Mesh = nullptr; float Scale = 1.f; float Foot = 100.f; };
-	auto LoadKit = [](const FKit* Items, int32 Num, TArray<FKitMesh>& Out)
+	const float FrontYaw = D->Tune(TEXT("MapKitFrontYaw"), -90.f); // KayKit fronts face +Y after import; Set_ / Fair_ face +X
+	struct FPiece { const TCHAR* Name; float Height; float Foot; };
+	struct FSig { const TCHAR* Name; float Ang; float Dist; float Foot; float YawAdd; };
+	// Graveyard: crypts, a ruined chapel and haunted cottages, a wheel of coffins, a striped tent crypt, a lantern tree
+	static const FPiece GraveFlank[6] = { { TEXT("Set_Mausoleum"), 0.f, 300.f }, { TEXT("KitM_church_red"), 1250.f, 420.f }, { TEXT("crypt"), 520.f, 260.f },
+		{ TEXT("KitM_destroyed"), 700.f, 320.f }, { TEXT("KitM_home_B_red"), 860.f, 300.f }, { TEXT("crypt"), 460.f, 240.f } };
+	static const FPiece GraveBack[4] = { { TEXT("Set_BellTower"), 0.f, 260.f }, { TEXT("KitM_tower_B_red"), 2100.f, 340.f }, { TEXT("KitM_tower_A_blue"), 1800.f, 320.f },
+		{ TEXT("KitM_windmill_red"), 1600.f, 340.f } };
+	static const FSig GraveSig[2] = { { TEXT("Fair_CoffinWheel"), 124.f, 1400.f, 550.f, 0.f }, { TEXT("Fair_TentCrypt"), -133.f, 1300.f, 500.f, 0.f } };
+	static const FPiece GraveTrees[5] = { { TEXT("KitM_tree_single_A"), 900.f, 70.f }, { TEXT("KitM_tree_single_B"), 800.f, 70.f }, { TEXT("tree_dead_large"), 1000.f, 70.f },
+		{ TEXT("Set_Yew"), 0.f, 70.f }, { TEXT("tree_dead_medium"), 700.f, 70.f } };
+	// Drowned Harbour: stilt warehouses, mills, a beached wreck, a crane yard, netted cargo hard against the walls
+	static const FPiece HarbourFlank[6] = { { TEXT("Fair_StiltHouse"), 0.f, 460.f }, { TEXT("KitM_lumbermill_red"), 1100.f, 400.f }, { TEXT("Set_Boathouse"), 0.f, 360.f },
+		{ TEXT("KitM_watermill_blue"), 1050.f, 380.f }, { TEXT("KitM_market_blue"), 720.f, 340.f }, { TEXT("Fair_StiltHouse"), 0.f, 460.f } };
+	static const FPiece HarbourBack[4] = { { TEXT("Set_Crane"), 0.f, 300.f }, { TEXT("KitM_tower_B_red"), 2000.f, 320.f }, { TEXT("KitM_barracks_blue"), 1100.f, 380.f },
+		{ TEXT("KitM_tower_A_blue"), 1700.f, 300.f } };
+	static const FSig HarbourSig[2] = { { TEXT("Fair_Wreck"), 124.f, 1550.f, 800.f, 25.f }, { TEXT("Set_Crane"), -133.f, 1300.f, 320.f, 0.f } };
+	static const FPiece HarbourTrees[4] = { { TEXT("Set_Pilings"), 0.f, 70.f }, { TEXT("Fair_Mast"), 0.f, 70.f }, { TEXT("Set_Pilings"), 0.f, 70.f }, { TEXT("post"), 320.f, 40.f } };
+	// Clocktower: clock-face walls, workshops and scaffolds, a great pendulum, pipework, a castle on the skyline
+	static const FPiece ClockFlank[6] = { { TEXT("Fair_ClockWall"), 0.f, 300.f }, { TEXT("KitM_blacksmith_blue"), 800.f, 320.f }, { TEXT("KitM_scaffolding"), 950.f, 300.f },
+		{ TEXT("KitM_barracks_blue"), 1050.f, 380.f }, { TEXT("Fair_ClockWall"), 0.f, 300.f }, { TEXT("KitM_tavern_red"), 940.f, 340.f } };
+	static const FPiece ClockBack[4] = { { TEXT("KitM_castle_red"), 2700.f, 500.f }, { TEXT("KitM_tower_B_red"), 2300.f, 360.f }, { TEXT("Set_GearArch"), 0.f, 300.f },
+		{ TEXT("KitM_tower_A_blue"), 1900.f, 320.f } };
+	static const FSig ClockSig[2] = { { TEXT("Fair_Pendulum"), 124.f, 1250.f, 340.f, 0.f }, { TEXT("Fair_Pipes"), -133.f, 1300.f, 400.f, 0.f } };
+	// (iteration 7) nothing grows in the brass town: its "trees" are foundry chimneys, signal cogs and gear stacks
+	static const FPiece ClockTrees[4] = { { TEXT("Fair_Chimney"), 0.f, 90.f }, { TEXT("Fair_GearPost"), 0.f, 60.f }, { TEXT("Fair_Chimney"), 0.f, 90.f }, { TEXT("Set_GearStack"), 0.f, 160.f } };
+	// (iteration 8) no two districts alike: the landmark rotates through the map's three, the fronts rotate round the ring,
+	// every other district is mirrored and swaps in the map's second signature piece
+	static const FSig GraveSigAlt = { TEXT("Fair_Carousel"), 124.f, 1400.f, 500.f, 0.f };
+	static const FSig HarbourSigAlt = { TEXT("Fair_DivingBell"), 124.f, 1300.f, 420.f, 0.f };
+	static const FSig ClockSigAlt = { TEXT("Fair_Orrery"), 124.f, 1300.f, 460.f, 0.f };
+	static const FPiece GraveSub = { TEXT("KitM_tavern_red"), 900.f, 320.f };
+	static const FPiece HarbourSub = { TEXT("KitM_blacksmith_blue"), 760.f, 320.f };
+	static const FPiece ClockSub = { TEXT("KitM_home_A_blue"), 740.f, 300.f };
+	static const FPiece TowerSub = { TEXT("KitM_tower_A_blue"), 1800.f, 320.f };
+	const FSig& SigAlt = bHarbour ? HarbourSigAlt : (bClock ? ClockSigAlt : GraveSigAlt);
+	const FPiece& FlankSub = bHarbour ? HarbourSub : (bClock ? ClockSub : GraveSub);
+	const bool bVary = D->Tune(TEXT("MapDistrictVariety"), 1.f) > 0.5f;
+	const FPiece* Flank = bHarbour ? HarbourFlank : (bClock ? ClockFlank : GraveFlank);
+	const FPiece* Back = bHarbour ? HarbourBack : (bClock ? ClockBack : GraveBack);
+	const FSig* Sig = bHarbour ? HarbourSig : (bClock ? ClockSig : GraveSig);
+	const FPiece* Trees = bHarbour ? HarbourTrees : (bClock ? ClockTrees : GraveTrees);
+	const int32 TreeNum = bHarbour ? 4 : (bClock ? 4 : 5);
+	const TCHAR* GateTree = bHarbour ? TEXT("Set_Pilings") : (bClock ? TEXT("Set_GearStack") : TEXT("Fair_LanternTree"));
+	const TCHAR* Stall = bHarbour ? TEXT("Fair_CargoPile") : (bClock ? TEXT("Fair_Pipes") : TEXT("Fair_Stall"));
+	const int32 StallNum = bClock ? 1 : 2;
+	static const float FlankAng[6] = { 34.f, -36.f, 64.f, -66.f, 95.f, -97.f };
+	static const float BackAng[4] = { 50.f, -51.f, 82.f, -80.f };
+	static const float StallAng[2] = { 140.f, 153.f };
+
+	FRandomStream SR(MapSeed ^ 0x0A27F00D);
+	auto IsStilted = [](const FName& Name) -> bool
 	{
-		for (int32 ItemIdx = 0; ItemIdx < Num; ++ItemIdx)
-		{
-			UStaticMesh* KitMesh = SQArt::Prop(FName(Items[ItemIdx].Name));
-			if (!KitMesh) continue;
-			const FVector Ext = KitMesh->GetBounds().BoxExtent;
-			FKitMesh Entry;
-			Entry.Mesh = KitMesh;
-			Entry.Scale = Items[ItemIdx].Height > 0.f ? Items[ItemIdx].Height / FMath::Max(1.f, static_cast<float>(Ext.Z) * 2.f) : 1.f;
-			Entry.Foot = static_cast<float>(FMath::Max(Ext.X, Ext.Y)) * Entry.Scale * 0.8f;
-			Out.Add(Entry);
-		}
+		const FString Text = Name.ToString();
+		return Text.Contains(TEXT("Stilt")) || Text.Contains(TEXT("Wreck")) || Text.Contains(TEXT("Pilings")) || Text.Contains(TEXT("NetRack")) || Text == TEXT("post");
 	};
-	TArray<FKitMesh> Houses, Towers, YardKit, WallMeshes, Banners, Trees, Pillars, Backs;
-	if (bHarbour) { LoadKit(HarbourHouses, UE_ARRAY_COUNT(HarbourHouses), Houses); LoadKit(HarbourTowers, UE_ARRAY_COUNT(HarbourTowers), Towers); LoadKit(HarbourYard, UE_ARRAY_COUNT(HarbourYard), YardKit); }
-	else if (bClock) { LoadKit(ClockHouses, UE_ARRAY_COUNT(ClockHouses), Houses); LoadKit(ClockTowers, UE_ARRAY_COUNT(ClockTowers), Towers); LoadKit(ClockYard, UE_ARRAY_COUNT(ClockYard), YardKit); }
-	else { LoadKit(GraveHouses, UE_ARRAY_COUNT(GraveHouses), Houses); LoadKit(GraveTowers, UE_ARRAY_COUNT(GraveTowers), Towers); LoadKit(GraveYard, UE_ARRAY_COUNT(GraveYard), YardKit); }
-	LoadKit(WallKit, UE_ARRAY_COUNT(WallKit), WallMeshes);
-	LoadKit(BannerKit, UE_ARRAY_COUNT(BannerKit), Banners);
-	LoadKit(TreeKit, UE_ARRAY_COUNT(TreeKit), Trees);
-	LoadKit(PillarKit, UE_ARRAY_COUNT(PillarKit), Pillars);
-	LoadKit(BackKit, UE_ARRAY_COUNT(BackKit), Backs);
-	if (Houses.Num() + Towers.Num() + YardKit.Num() + WallMeshes.Num() + Trees.Num() + Pillars.Num() + Backs.Num() == 0)
+	// Geometric clearance only (nothing here depends on what is built later): bounds, hub, other zones, road / lanes,
+	// spawner pads, water, layout walls, skate ground, slope and a level footing
+	auto Clear = [this, bHarbour](float X, float Y, float R, int32 OwnZone, bool bOnLane, bool bWetOk) -> bool
 	{
-		UE_LOG(LogSQ, Log, TEXT("Map scenery: KayKit pieces (KitD_ / KitM_) not imported yet - run Scripts/setup_project.py"));
-		return 0;
-	}
-	auto ClearAt = [this](float X, float Y, float R) -> bool
-	{
-		if (FMath::Abs(X) > Half - 300.f - R || FMath::Abs(Y) > Half - 300.f - R) return false;
-		if (IsReservedSpot(X, Y, R) || !IsPropFootprintFree(X, Y, R)) return false;
-		if (PathMask(X, Y) > 0.05f || IsWaterAt(X, Y)) return false;
-		if (GroundSlopeDeg(X, Y) > 14.f || FMath::Abs(SkateHeight(X, Y)) > 4.f) return false;
+		if (FMath::Abs(X) > Half - 350.f - R || FMath::Abs(Y) > Half - 350.f - R) return false;
+		if (X * X + Y * Y < FMath::Square(HubRadius + 300.f + R)) return false;
+		const FVector2D At(X, Y);
+		for (int32 ZoneIdx = 0; ZoneIdx < MapZones.Num(); ++ZoneIdx)
+		{
+			const FSQMapZone& Zone = MapZones[ZoneIdx];
+			if (Zone.Kind == ESQZoneKind::Hub) continue;
+			const float Need = ZoneIdx == OwnZone ? Zone.Radius + 30.f : Zone.Radius + R + 150.f;
+			if (!bOnLane && FVector2D::DistSquared(Zone.Centre, At) < static_cast<double>(Need) * Need) return false;
+		}
+		if (!bOnLane)
+		{
+			if (DistToRoad(X, Y) < RoadHalfWidth + R + 40.f) return false;
+			if (DistToLane(X, Y) < LaneHalfWidth + R + 60.f) return false;
+		}
+		for (const FVector2D& Pad : SpawnerSpots)
+		{
+			const float Need = ArenaMapPadClear + R;
+			if (FVector2D::DistSquared(Pad, At) < static_cast<double>(Need) * Need) return false;
+		}
+		for (const FSQMapWall& W : MapWalls)
+		{
+			if (DistToSegment2D(X, Y, static_cast<float>(W.A.X), static_cast<float>(W.A.Y), static_cast<float>(W.B.X), static_cast<float>(W.B.Y)) - W.HalfThick < R + 40.f) return false;
+		}
+		if (IsWaterAt(X, Y) || FMath::Abs(SkateHeight(X, Y)) > 4.f || GroundSlopeDeg(X, Y) > 14.f) return false;
+		const float Z0 = GroundZ(X, Y);
+		if (bHarbour && !bWetOk && Z0 < TideHighZ - 20.f) return false; // dry land only (stilts, wrecks and pilings may stand in the tide)
+		const float Probe = FMath::Min(R, 600.f) * 0.7f;
+		static const float Dirs[4][2] = { { 1.f, 0.f }, { -1.f, 0.f }, { 0.f, 1.f }, { 0.f, -1.f } };
+		for (const float* Dir : Dirs)
+		{
+			const float PX = X + Dir[0] * Probe;
+			const float PY = Y + Dir[1] * Probe;
+			if (FMath::Abs(GroundZ(PX, PY) - Z0) > 70.f || IsWaterAt(PX, PY) || FMath::Abs(SkateHeight(PX, PY)) > 4.f) return false;
+		}
 		return true;
 	};
-	auto Place = [this](const FKitMesh& Kit, float X, float Y, float YawDeg) -> bool
+	auto Free = [this](float X, float Y, float R) -> bool
 	{
-		return PlaceSetPiece(Kit.Mesh, X, Y, YawDeg, Kit.Foot, true, Kit.Scale);
+		for (const FSQScenerySite& Other : ScenerySites)
+		{
+			if (Other.Kind == SiteSpan || Other.Kind == SiteOnPodium) continue;
+			const float Need = Other.Foot + R + 30.f;
+			if (FVector2D::DistSquared(Other.At, FVector2D(X, Y)) < static_cast<double>(Need) * Need) return false;
+		}
+		return true;
 	};
-	auto YawTo = [](const FVector2D& From, const FVector2D& To) -> float
+	auto Add = [this](const TCHAR* Name, float X, float Y, float YawDeg, float Foot, float Height, uint8 Kind, int32 DistrictIdx, float ZOff, float Scale) -> FSQScenerySite&
 	{
-		const FVector2D Dir = To - From;
-		return FMath::RadiansToDegrees(FMath::Atan2(static_cast<float>(Dir.Y), static_cast<float>(Dir.X)));
+		FSQScenerySite Site;
+		Site.At = FVector2D(X, Y);
+		Site.Yaw = YawDeg;
+		Site.Foot = Foot;
+		Site.Height = Height;
+		Site.Kind = Kind;
+		Site.District = DistrictIdx;
+		Site.ZOff = ZOff;
+		Site.Scale = Scale;
+		Site.Mesh = FName(Name);
+		return ScenerySites.Add_GetRef(Site);
 	};
-	FRandomStream SR(MapSeed ^ 0x0A27F00D);
-	int32 HousesPlaced = 0, TowersPlaced = 0, YardPlaced = 0, WallsPlaced = 0, TreesPlaced = 0, PillarsPlaced = 0, BackPlaced = 0;
-	const int32 Budget = FMath::RoundToInt(260.f * Density);
-	auto Total = [&]() { return HousesPlaced + TowersPlaced + YardPlaced + WallsPlaced + TreesPlaced + PillarsPlaced; };
+	auto Has = [](const TCHAR* Name) -> bool { return SQArt::Prop(FName(Name)) != nullptr; };
+	auto IsKit = [](const TCHAR* Name) -> bool { const FString Text(Name); return !Text.StartsWith(TEXT("Set_")) && !Text.StartsWith(TEXT("Fair_")); };
+	const TArray<FName>* LandmarkNames = SetRoles.Find(FName(TEXT("Landmark")));
+	const int32 LandmarkShift = (LandmarkNames && LandmarkNames->Num() > 0) ? SR.RandRange(0, LandmarkNames->Num() - 1) : 0;
+	const bool bPodium = D->Tune(TEXT("MapPodiums"), 1.f) > 0.5f;
+	const int32 TreeLine = FMath::RoundToInt((bHarbour ? 8.f : (bClock ? 10.f : 18.f)) * Density);
+	const int32 GroveTrees = bHarbour ? 2 : 4;
 
-	for (int32 DistrictIdx = 0; DistrictIdx < Districts.Num() && Total() < Budget; ++DistrictIdx)
+	for (int32 DistrictIdx = 0; DistrictIdx < Districts.Num(); ++DistrictIdx)
 	{
 		const FSQDistrict& Dist = Districts[DistrictIdx];
 		if (!MapZones.IsValidIndex(Dist.Zone) || Dist.Zone == BossZone) continue; // the boss arena stays open
 		const FSQMapZone& Zone = MapZones[Dist.Zone];
-		// --- House fronts round the plaza, facing in, with cargo / stalls pushed up against a side wall
-		const int32 WantHouses = Houses.Num() > 0 ? FMath::RoundToInt(5.f * Density) : 0;
-		const float StartAng = SR.FRandRange(0.f, 2.f * PI);
-		int32 Made = 0;
-		for (int32 Try = 0; Try < WantHouses * 5 && Made < WantHouses; ++Try)
+		const float R = Zone.Radius;
+		const float CX = static_cast<float>(Zone.Centre.X);
+		const float CY = static_cast<float>(Zone.Centre.Y);
+		const float Ref = DistrictGateAngle(DistrictIdx) + PI; // 0 deg = straight through the plaza from the gate
+		const float Mirror = (bVary && (DistrictIdx & 1)) ? -1.f : 1.f;
+		const int32 FlankShift = bVary ? (2 * DistrictIdx) % 6 : 0;
+		FName DistrictLandmark = NAME_None;
+		auto At = [CX, CY, Ref, Mirror](float AngDeg, float Dist2) -> FVector2D
 		{
-			const FKitMesh& House = Houses[SR.RandRange(0, Houses.Num() - 1)];
-			const float Ang = StartAng + 2.f * PI * static_cast<float>(Try) / static_cast<float>(WantHouses * 5) + SR.FRandRange(-0.08f, 0.08f);
-			const float Ring = Zone.Radius + House.Foot + SR.FRandRange(420.f, 760.f);
-			const FVector2D At = Zone.Centre + FVector2D(FMath::Cos(Ang), FMath::Sin(Ang)) * Ring;
-			const float AX = static_cast<float>(At.X);
-			const float AY = static_cast<float>(At.Y);
-			if (!ClearAt(AX, AY, House.Foot + 170.f)) continue;
-			const float Yaw = YawTo(At, Zone.Centre) + FrontYaw + SR.FRandRange(-7.f, 7.f);
-			if (!Place(House, AX, AY, Yaw)) continue;
-			++Made;
-			++HousesPlaced;
-			const int32 WantYard = YardKit.Num() > 0 ? SR.RandRange(1, 2) : 0;
-			const FVector2D Side(-FMath::Sin(Ang), FMath::Cos(Ang));
-			for (int32 YardIdx = 0; YardIdx < WantYard; ++YardIdx)
-			{
-				const FKitMesh& Cargo = YardKit[SR.RandRange(0, YardKit.Num() - 1)];
-				const float SideSign = YardIdx == 0 ? 1.f : -1.f;
-				const FVector2D CargoAt = At + Side * (SideSign * (House.Foot + Cargo.Foot + 30.f));
-				const float CX = static_cast<float>(CargoAt.X);
-				const float CY = static_cast<float>(CargoAt.Y);
-				if (bHarbour && GroundZ(CX, CY) < TideHighZ - 20.f) continue; // cargo stays out of the tide
-				if (!ClearAt(CX, CY, Cargo.Foot + 40.f)) continue;
-				if (Place(Cargo, CX, CY, Yaw + SR.FRandRange(-20.f, 20.f))) ++YardPlaced;
-			}
-		}
-		// --- Towers behind the district (the skyline you run toward)
-		const FVector2D Out = Zone.Centre.GetSafeNormal();
-		const int32 WantTowers = Towers.Num() > 0 ? FMath::RoundToInt(2.f * Density) : 0;
-		Made = 0;
-		for (int32 Try = 0; Try < WantTowers * 8 && Made < WantTowers; ++Try)
+			const float Ang = Ref + FMath::DegreesToRadians(AngDeg * Mirror);
+			return FVector2D(CX + FMath::Cos(Ang) * Dist2, CY + FMath::Sin(Ang) * Dist2);
+		};
+		auto FaceIn = [CX, CY](const FVector2D& P) -> float
 		{
-			const FKitMesh& Tower = Towers[SR.RandRange(0, Towers.Num() - 1)];
-			const float Ang = FMath::Atan2(static_cast<float>(Out.Y), static_cast<float>(Out.X)) + SR.FRandRange(-1.1f, 1.1f);
-			const FVector2D At = Zone.Centre + FVector2D(FMath::Cos(Ang), FMath::Sin(Ang)) * SR.FRandRange(Zone.Radius + 1500.f, FMath::Max(Zone.Radius + 1700.f, Dist.Radius));
-			const float AX = static_cast<float>(At.X);
-			const float AY = static_cast<float>(At.Y);
-			if (!ClearAt(AX, AY, Tower.Foot + 200.f)) continue;
-			if (Place(Tower, AX, AY, YawTo(At, Zone.Centre) + FrontYaw)) { ++Made; ++TowersPlaced; }
-		}
-		// --- Wall runs with a banner: three wall pieces end to end, across the line of sight, well off the plaza
-		const int32 WantRuns = WallMeshes.Num() > 0 ? FMath::RoundToInt(2.f * Density) : 0;
-		Made = 0;
-		for (int32 Try = 0; Try < WantRuns * 8 && Made < WantRuns; ++Try)
-		{
-			const float Ang = SR.FRandRange(0.f, 2.f * PI);
-			const FVector2D Radial(FMath::Cos(Ang), FMath::Sin(Ang));
-			const FVector2D Tangent(-Radial.Y, Radial.X);
-			const FVector2D Mid = Zone.Centre + Radial * SR.FRandRange(Zone.Radius + 1100.f, Zone.Radius + 2100.f);
-			const float SegLen = WallMeshes[0].Mesh ? static_cast<float>(WallMeshes[0].Mesh->GetBounds().BoxExtent.X) * 2.f * WallMeshes[0].Scale : 420.f;
-			bool bRunClear = true;
-			for (int32 Seg = -1; Seg <= 1 && bRunClear; ++Seg)
-			{
-				const FVector2D SegAt = Mid + Tangent * (SegLen * static_cast<float>(Seg));
-				bRunClear = ClearAt(static_cast<float>(SegAt.X), static_cast<float>(SegAt.Y), SegLen * 0.5f + 150.f);
-			}
-			if (!bRunClear) continue;
-			const float WallYaw = FMath::RadiansToDegrees(FMath::Atan2(static_cast<float>(Tangent.Y), static_cast<float>(Tangent.X)));
-			for (int32 Seg = -1; Seg <= 1; ++Seg)
-			{
-				const FKitMesh& WallPiece = WallMeshes[SR.RandRange(0, WallMeshes.Num() - 1)];
-				const FVector2D SegAt = Mid + Tangent * (SegLen * static_cast<float>(Seg));
-				const float WX = static_cast<float>(SegAt.X);
-				const float WY = static_cast<float>(SegAt.Y);
-				if (!PlaceSetPiece(WallPiece.Mesh, WX, WY, WallYaw, SegLen * 0.5f, true, WallPiece.Scale)) continue;
-				++WallsPlaced;
-				// The banner hangs on the wall: same origin, same scale, no collision of its own
-				if (Seg == 0 && Banners.Num() > 0)
-				{
-					const FKitMesh& Banner = Banners[SR.RandRange(0, Banners.Num() - 1)];
-					const FTransform BannerXf(FRotator(0.f, WallYaw, 0.f), FVector(WX, WY, GroundZ(WX, WY) - 6.f), FVector(WallPiece.Scale));
-					if (UStaticMeshComponent* BannerPart = AddArtPart(Banner.Mesh, BannerXf, nullptr, false)) MarkFadeable(BannerPart);
-				}
-			}
-			++Made;
-		}
-	}
+			return FMath::RadiansToDegrees(FMath::Atan2(CY - static_cast<float>(P.Y), CX - static_cast<float>(P.X)));
+		};
+		// Fixed rolls per district, whatever fits
+		const float TreeRolls = SR.FRand();
 
-	// --- Pillar pairs along the lanes (gateposts you run between), every so often
-	if (Pillars.Num() > 0)
-	{
-		const float PillarStep = 1500.f / FMath::Max(0.5f, Density);
-		for (const FSQLane& Lane : Lanes)
+		// --- The landmark on its podium, opposite the gate (a few angles are tried so a wall or pad never blocks it)
+		if (LandmarkNames && LandmarkNames->Num() > 0)
 		{
-			float Walked = PillarStep * 0.6f;
-			for (int32 PtIdx = 0; PtIdx + 1 < Lane.Pts.Num() && Total() < Budget; ++PtIdx)
+			const FName LandmarkName = (*LandmarkNames)[(DistrictIdx + LandmarkShift) % LandmarkNames->Num()];
+			static const float TryDeg[5] = { 0.f, 18.f, -18.f, 36.f, -36.f };
+			for (const float Deg : TryDeg)
 			{
-				const FVector2D SegA = Lane.Pts[PtIdx];
-				const FVector2D SegB = Lane.Pts[PtIdx + 1];
-				const float SegLen = static_cast<float>(FVector2D::Distance(SegA, SegB));
-				if (SegLen < 1.f) continue;
-				const FVector2D Along = (SegB - SegA) / SegLen;
-				const FVector2D Across(-Along.Y, Along.X);
-				for (; Walked < SegLen; Walked += PillarStep)
+				if (!SQArt::Prop(LandmarkName)) break;
+				const FVector2D L = At(Deg, R + 660.f);
+				const float LX = static_cast<float>(L.X);
+				const float LY = static_cast<float>(L.Y);
+				if (!Clear(LX, LY, 600.f, Dist.Zone, false, bHarbour) || !Free(LX, LY, 600.f)) continue;
+				const float Face = FaceIn(L);
+				if (bPodium)
 				{
-					const FVector2D On = SegA + Along * Walked;
-					if (On.Size() < HubRadius + 500.f) continue;
-					const FKitMesh& Pillar = Pillars[SR.RandRange(0, Pillars.Num() - 1)];
-					for (const float SideSign : { -1.f, 1.f })
+					// The podium's pivot is its bounding-box centre (steps included): the platform centre sits 86 cm behind it
+					const float FaceRad = FMath::DegreesToRadians(Face);
+					Add(TEXT("Fair_Podium"), LX + FMath::Cos(FaceRad) * 86.f, LY + FMath::Sin(FaceRad) * 86.f, Face, 720.f, 0.f, SitePodium, DistrictIdx, 0.f, 1.f);
+					Add(*LandmarkName.ToString(), LX, LY, Face, 0.f, 0.f, SiteOnPodium, DistrictIdx, 140.f, 1.f);
+				}
+				else
+				{
+					Add(*LandmarkName.ToString(), LX, LY, Face, 420.f, 0.f, SiteSolid, DistrictIdx, 0.f, 1.f);
+				}
+				DistrictFrontAng[DistrictIdx] = Ref + FMath::DegreesToRadians(Deg * Mirror);
+				DistrictLandmark = LandmarkName;
+				break;
+			}
+		}
+		// --- Six fronts shoulder to shoulder outside the yard wall, facing in; harbour cargo hard against a side wall
+		for (int32 Slot = 0; Slot < 6; ++Slot)
+		{
+			const FPiece& Listed = Flank[(Slot + FlankShift) % 6];
+			const FPiece& Piece = (bVary && DistrictLandmark == FName(Listed.Name)) ? FlankSub : Listed; // never the landmark twice
+			if (!Has(Piece.Name)) continue;
+			static const float Nudge[3][2] = { { 0.f, 0.f }, { 0.f, 220.f }, { 7.f, 120.f } };
+			for (const float* Try : Nudge)
+			{
+				const float Ang = FlankAng[Slot] + (FlankAng[Slot] > 0.f ? Try[0] : -Try[0]);
+				const FVector2D P = At(Ang, R + Piece.Foot + 560.f + ((Slot & 1) ? 120.f : 0.f) + Try[1]);
+				const float PX = static_cast<float>(P.X);
+				const float PY = static_cast<float>(P.Y);
+				if (!Clear(PX, PY, Piece.Foot, Dist.Zone, false, IsStilted(FName(Piece.Name))) || !Free(PX, PY, Piece.Foot)) continue;
+				const float Face = FaceIn(P);
+				Add(Piece.Name, PX, PY, Face + (IsKit(Piece.Name) ? FrontYaw : 0.f), Piece.Foot, Piece.Height, SiteSolid, DistrictIdx, 0.f, 1.f);
+				if (bHarbour && (Slot == 1 || Slot == 3 || Slot == 4) && Has(TEXT("Fair_CargoPile")))
+				{
+					const float AngRad = Ref + FMath::DegreesToRadians(Ang * Mirror);
+					const float SideSign = (FlankAng[Slot] > 0.f ? 1.f : -1.f) * Mirror;
+					const float GX = PX - FMath::Sin(AngRad) * SideSign * (Piece.Foot + 160.f);
+					const float GY = PY + FMath::Cos(AngRad) * SideSign * (Piece.Foot + 160.f);
+					if (Clear(GX, GY, 200.f, Dist.Zone, false, false) && Free(GX, GY, 150.f))
 					{
-						const FVector2D At = On + Across * (SideSign * (LaneHalfWidth + 260.f));
-						const float AX = static_cast<float>(At.X);
-						const float AY = static_cast<float>(At.Y);
-						if (!ClearAt(AX, AY, Pillar.Foot + 60.f)) continue;
-						if (Place(Pillar, AX, AY, YawTo(At, On) + FrontYaw)) ++PillarsPlaced;
+						Add(TEXT("Fair_CargoPile"), GX, GY, Face, 200.f, 0.f, SiteSolid, DistrictIdx, 0.f, 1.f);
 					}
 				}
-				Walked -= SegLen;
+				break;
 			}
 		}
-	}
-
-	// --- Groves: clusters of trees filling the open ground between the districts
-	if (Trees.Num() > 0)
-	{
-		const int32 WantGroves = FMath::RoundToInt((bHarbour ? 4.f : (bClock ? 6.f : 10.f)) * Density);
-		int32 Groves = 0;
-		for (int32 Try = 0; Try < WantGroves * 12 && Groves < WantGroves && Total() < Budget; ++Try)
+		// --- The second row: towers and tall pieces behind the gaps (the skyline you run toward)
+		for (int32 Slot = 0; Slot < 4; ++Slot)
 		{
-			const FVector2D Core(SR.FRandRange(-Half + 900.f, Half - 900.f), SR.FRandRange(-Half + 900.f, Half - 900.f));
-			if (Core.Size() < HubRadius + 1200.f) continue;
-			if (!ClearAt(static_cast<float>(Core.X), static_cast<float>(Core.Y), 380.f)) continue;
-			if (bHarbour && GroundZ(static_cast<float>(Core.X), static_cast<float>(Core.Y)) < TideHighZ - 20.f) continue;
-			const int32 InGrove = SR.RandRange(4, 6);
-			int32 Planted = 0;
-			for (int32 TreeTry = 0; TreeTry < InGrove * 4 && Planted < InGrove; ++TreeTry)
+			const FPiece& Piece = (bVary && DistrictLandmark == FName(Back[Slot].Name)) ? TowerSub : Back[Slot];
+			if (!Has(Piece.Name)) continue;
+			for (const float Extra : { 0.f, 300.f, 650.f })
 			{
-				FKitMesh Tree = Trees[SR.RandRange(0, Trees.Num() - 1)];
-				Tree.Scale *= SR.FRandRange(0.8f, 1.3f);
-				Tree.Foot = 70.f; // the trunk blocks the horde; the canopy is overhead
-				const float TreeAng = SR.FRandRange(0.f, 2.f * PI);
-				const FVector2D At = Core + FVector2D(FMath::Cos(TreeAng), FMath::Sin(TreeAng)) * SR.FRandRange(0.f, 520.f);
-				const float AX = static_cast<float>(At.X);
-				const float AY = static_cast<float>(At.Y);
-				if (!ClearAt(AX, AY, 150.f)) continue;
-				if (Place(Tree, AX, AY, SR.FRandRange(0.f, 360.f))) { ++Planted; ++TreesPlaced; }
+				const FVector2D P = At(BackAng[Slot], R + 1750.f + (Slot >= 2 ? 250.f : 0.f) + Extra);
+				const float PX = static_cast<float>(P.X);
+				const float PY = static_cast<float>(P.Y);
+				if (!Clear(PX, PY, Piece.Foot, Dist.Zone, false, false) || !Free(PX, PY, Piece.Foot)) continue;
+				Add(Piece.Name, PX, PY, FaceIn(P) + (IsKit(Piece.Name) ? FrontYaw : 0.f), Piece.Foot, Piece.Height, SiteSolid, DistrictIdx, 0.f, 1.f);
+				break;
 			}
-			if (Planted > 0) ++Groves;
 		}
-	}
-
-	// --- Backdrop: a ring of forest beyond the edge of the arena (no collision: nobody gets there)
-	if (Backs.Num() > 0)
-	{
-		const int32 WantBack = FMath::RoundToInt(44.f * Density);
-		for (int32 BackIdx = 0; BackIdx < WantBack; ++BackIdx)
+		// --- Signature set pieces at the shoulders; the gate tree beside the gate; stalls standing in the yard wall
+		for (int32 Slot = 0; Slot < 2; ++Slot)
 		{
-			const FKitMesh& Back = Backs[SR.RandRange(0, Backs.Num() - 1)];
-			const float Ang = 2.f * PI * (static_cast<float>(BackIdx) + SR.FRandRange(-0.3f, 0.3f)) / static_cast<float>(WantBack);
-			const float Ring = Half + Back.Foot + SR.FRandRange(300.f, 1800.f);
-			const float BX = FMath::Cos(Ang) * Ring;
-			const float BY = FMath::Sin(Ang) * Ring;
-			const float BackScale = Back.Scale * SR.FRandRange(0.8f, 1.25f);
-			const FTransform BackXf(FRotator(0.f, SR.FRandRange(0.f, 360.f), 0.f), FVector(BX, BY, -40.f), FVector(BackScale));
-			if (AddArtPart(Back.Mesh, BackXf, nullptr, false)) ++BackPlaced;
+			// Odd districts: the second signature piece takes the first shoulder, the first one moves across
+			FSig Piece = Sig[Slot];
+			if (bVary && (DistrictIdx & 1))
+			{
+				const FSig& Source = Slot == 0 ? SigAlt : Sig[0];
+				Piece.Name = Source.Name; Piece.Dist = Source.Dist; Piece.Foot = Source.Foot; Piece.YawAdd = Source.YawAdd;
+			}
+			if (bVary && DistrictLandmark == FName(Piece.Name)) { Piece.Name = SigAlt.Name; Piece.Dist = SigAlt.Dist; Piece.Foot = SigAlt.Foot; Piece.YawAdd = 0.f; }
+			if (!Has(Piece.Name)) continue;
+			for (const float Extra : { 0.f, 250.f, -200.f })
+			{
+				const FVector2D P = At(Piece.Ang, R + Piece.Dist + Extra);
+				const float PX = static_cast<float>(P.X);
+				const float PY = static_cast<float>(P.Y);
+				if (!Clear(PX, PY, Piece.Foot, Dist.Zone, false, IsStilted(FName(Piece.Name))) || !Free(PX, PY, Piece.Foot)) continue;
+				Add(Piece.Name, PX, PY, FaceIn(P) + Piece.YawAdd * Mirror, Piece.Foot, 0.f, SiteSolid, DistrictIdx, 0.f, 1.f);
+				break;
+			}
+		}
+		if (Has(GateTree))
+		{
+			const FVector2D P = At(-150.f, R + 1350.f); // off the lane, so the arch frames the landmark
+			const float PX = static_cast<float>(P.X);
+			const float PY = static_cast<float>(P.Y);
+			if (Clear(PX, PY, 260.f, Dist.Zone, false, true) && Free(PX, PY, 200.f))
+			{
+				Add(GateTree, PX, PY, FaceIn(P), 130.f, 0.f, SiteTree, DistrictIdx, 0.f, 1.f);
+			}
+		}
+		for (int32 Slot = 0; Slot < StallNum && Has(Stall); ++Slot)
+		{
+			const FVector2D P = At(StallAng[Slot], R + 110.f + (bHarbour || bClock ? 160.f : 60.f));
+			const float PX = static_cast<float>(P.X);
+			const float PY = static_cast<float>(P.Y);
+			if (!Clear(PX, PY, 200.f, Dist.Zone, false, false) || !Free(PX, PY, 200.f)) continue;
+			Add(Stall, PX, PY, FaceIn(P), 240.f, 0.f, SiteSolid, DistrictIdx, 0.f, 1.f);
+		}
+		// --- Graveyard: fenced grave plots between the fronts and the shoulders (standing headstones behind a fence)
+		if (!bHarbour && !bClock)
+		{
+			static const float PlotAt[3][2] = { { 112.f, 950.f }, { -112.f, 900.f }, { 148.f, 1200.f } };
+			for (const float* Plot : PlotAt)
+			{
+				const FVector2D P = At(Plot[0], R + Plot[1]);
+				const float PX = static_cast<float>(P.X);
+				const float PY = static_cast<float>(P.Y);
+				if (!Clear(PX, PY, 480.f, Dist.Zone, false, false) || !Free(PX, PY, 440.f)) continue;
+				FSQScenerySite& Site = Add(TEXT("fence"), PX, PY, FMath::RadiansToDegrees(Ref) + Plot[0] * Mirror, 500.f, 0.f, SitePlot, DistrictIdx, 0.f, 1.f);
+				Site.Mesh = NAME_None;
+			}
+		}
+		// --- Drowned Harbour: beached hulks out on the flats (lantern at the mast), mooring pilings round the quay edge
+		if (bHarbour)
+		{
+			static const float BoatAt[5][3] = { { 38.f, 3100.f, 70.f }, { -72.f, 3000.f, -40.f }, { 150.f, 2700.f, 20.f }, { -116.f, 2800.f, 110.f }, { 4.f, 3600.f, 95.f } };
+			for (const float* Boat : BoatAt)
+			{
+				if (!Has(TEXT("Fair_Boat"))) break;
+				const FVector2D P = At(Boat[0], R + Boat[1]);
+				const float PX = static_cast<float>(P.X);
+				const float PY = static_cast<float>(P.Y);
+				if (!Clear(PX, PY, 380.f, Dist.Zone, false, true) || !Free(PX, PY, 380.f)) continue;
+				Add(TEXT("Fair_Boat"), PX, PY, FMath::RadiansToDegrees(Ref) + Boat[2] * Mirror, 380.f, 0.f, SiteSolid, DistrictIdx, 0.f, 1.f);
+			}
+			for (int32 Post = -5; Post <= 5; ++Post)
+			{
+				const float Roll = SR.FRandRange(0.85f, 1.1f);
+				const float Spin = SR.FRandRange(0.f, 360.f);
+				if (Post == 0 || !Has(TEXT("Set_Pilings"))) continue;
+				const FVector2D P = At(static_cast<float>(Post) * 21.f, R + 860.f + ((Post & 1) ? 50.f : 0.f));
+				const float PX = static_cast<float>(P.X);
+				const float PY = static_cast<float>(P.Y);
+				if (!Clear(PX, PY, 90.f, Dist.Zone, false, true) || !Free(PX, PY, 70.f)) continue;
+				Add(TEXT("Set_Pilings"), PX, PY, Spin, 70.f, 0.f, SiteTree, DistrictIdx, 0.f, Roll);
+			}
+		}
+		// --- Tree line: a dense arc behind the second row; groves at the shoulders and either side of the lane
+		auto Tree = [&](float PX, float PY, float Big, uint8 Kind) -> bool
+		{
+			const FPiece& Piece = Trees[SR.RandRange(0, TreeNum - 1)];
+			const float Roll = SR.FRandRange(0.85f, 1.3f);
+			const float Spin = SR.FRandRange(0.f, 360.f);
+			if (!Has(Piece.Name)) return false;
+			if (!Clear(PX, PY, 130.f, Dist.Zone, false, IsStilted(FName(Piece.Name))) || !Free(PX, PY, 90.f)) return false;
+			const FString PieceText(Piece.Name);
+			const bool bBuilt = PieceText.StartsWith(TEXT("Fair_")) || PieceText == TEXT("Set_GearStack");
+			const float BuiltScale = 0.72f + 0.28f * FMath::Clamp((Roll - 0.85f) / 0.45f, 0.f, 1.f);
+			Add(Piece.Name, PX, PY, Spin, Piece.Foot, Piece.Height * Big, Kind, DistrictIdx, 0.f,
+				bBuilt ? BuiltScale : Roll * (Piece.Height > 0.f ? 1.f : Big));
+			return true;
+		};
+		for (int32 TreeIdx = 0; TreeIdx < TreeLine; ++TreeIdx)
+		{
+			const float Ang = -118.f + 236.f * (static_cast<float>(TreeIdx) + SR.FRandRange(-0.3f, 0.3f)) / static_cast<float>(FMath::Max(1, TreeLine - 1));
+			const FVector2D P = At(Ang, R + SR.FRandRange(2450.f, 3100.f));
+			Tree(static_cast<float>(P.X), static_cast<float>(P.Y), 1.25f, SiteTreeLine);
+		}
+		static const float GroveAt[4][2] = { { 143.f, 1900.f }, { -143.f, 1800.f }, { 172.f, 1700.f }, { -172.f, 1750.f } };
+		for (const float* Grove : GroveAt)
+		{
+			const FVector2D Core = At(Grove[0], R + Grove[1]);
+			for (int32 TreeIdx = 0; TreeIdx < GroveTrees; ++TreeIdx)
+			{
+				const float Ang = SR.FRandRange(0.f, 2.f * PI);
+				const float Off = SR.FRandRange(80.f, 420.f);
+				Tree(static_cast<float>(Core.X) + FMath::Cos(Ang) * Off, static_cast<float>(Core.Y) + FMath::Sin(Ang) * Off, 1.f, SiteTree);
+			}
+		}
+		(void)TreeRolls;
+	}
+	UE_LOG(LogSQ, Log, TEXT("Map scenery plan (%s): %d sites in %d districts"), *MapShape.ToString(), ScenerySites.Num(), Districts.Num());
+}
+
+void ASQArena::BuildGravePlot(const FSQScenerySite& Site, float FrontYaw)
+{
+	// A fenced plot: two rows of standing headstones behind an iron fence with corner pillars and a lantern post. Scenery
+	// you run round (the fence blocks, the plot is a horde footprint); nothing in it is loose on open floor.
+	UStaticMesh* FenceMesh = SQArt::Prop(FName(TEXT("fence")));
+	UStaticMesh* PillarMesh = SQArt::Prop(FName(TEXT("fence_pillar")));
+	static const TCHAR* StoneNames[3] = { TEXT("gravestone"), TEXT("grave_A"), TEXT("grave_B") };
+	if (!FenceMesh) return;
+	const float SX = static_cast<float>(Site.At.X);
+	const float SY = static_cast<float>(Site.At.Y);
+	if (!IsPropFootprintFree(SX, SY, 380.f)) return;
+	const USQData* D = USQData::Get(this);
+	const FSQBiomeDef* Biome = D ? D->FindBiome(BiomeId) : nullptr;
+	const FLinearColor PropColor = ArenaLoadPalette(BiomeId, Biome).Prop;
+	UMaterialInstanceDynamic* KitMID = SQArt::TintMID(this, SQArt::PropTexture(), SQArt::SoftTint(PropColor, 0.3f));
+	const float Rad = FMath::DegreesToRadians(Site.Yaw);
+	const FVector2D U(FMath::Cos(Rad), FMath::Sin(Rad));
+	const FVector2D V(-U.Y, U.X);
+	FRandomStream PlotRand(MapSeed ^ (FMath::RoundToInt(SX) * 31 + FMath::RoundToInt(SY)));
+	auto ISMFor = [this, KitMID](UStaticMesh* Mesh) -> UInstancedStaticMeshComponent*
+	{
+		UInstancedStaticMeshComponent*& ISM = SceneryISMs.FindOrAdd(Mesh->GetFName());
+		if (!ISM)
+		{
+			ISM = MakeArtISM(Mesh, KitMID, true, true);
+			ISM->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+			PropBlockers.Add(ISM);
+		}
+		return ISM;
+	};
+	auto Put = [&](UStaticMesh* Mesh, float Along, float Across, float YawDeg, float Height)
+	{
+		if (!Mesh) return;
+		const FVector2D P = Site.At + U * Along + V * Across;
+		const float PX = static_cast<float>(P.X);
+		const float PY = static_cast<float>(P.Y);
+		const float Scale = Height / FMath::Max(1.f, static_cast<float>(Mesh->GetBounds().BoxExtent.Z) * 2.f);
+		ISMFor(Mesh)->AddInstance(FTransform(FRotator(0.f, YawDeg, 0.f), FVector(PX, PY, GroundZ(PX, PY) - 4.f), FVector(Scale)));
+	};
+	for (int32 i = -1; i <= 1; ++i)
+	{
+		for (int32 j = -1; j <= 1; j += 2)
+		{
+			Put(SQArt::Prop(FName(StoneNames[PlotRand.RandRange(0, 2)])), i * 190.f, j * 130.f, Site.Yaw + 180.f + FrontYaw + PlotRand.FRandRange(-8.f, 8.f), PlotRand.FRandRange(150.f, 200.f));
 		}
 	}
-	UE_LOG(LogSQ, Log, TEXT("Map scenery: %d houses, %d towers, %d cargo, %d wall pieces, %d trees, %d pillars, %d backdrop"),
-		HousesPlaced, TowersPlaced, YardPlaced, WallsPlaced, TreesPlaced, PillarsPlaced, BackPlaced);
-	return Total() + BackPlaced;
+	for (int32 i = -2; i <= 2; ++i)
+	{
+		for (int32 j = -1; j <= 1; j += 2) Put(FenceMesh, i * 160.f, j * 290.f, Site.Yaw + 90.f + FrontYaw, 150.f);
+	}
+	for (int32 j = -1; j <= 1; ++j)
+	{
+		for (int32 i = -1; i <= 1; i += 2) Put(FenceMesh, i * 400.f, j * 190.f, Site.Yaw + FrontYaw, 150.f);
+	}
+	for (int32 i = -1; i <= 1; i += 2)
+	{
+		for (int32 j = -1; j <= 1; j += 2) Put(PillarMesh, i * 400.f, j * 290.f, Site.Yaw, 210.f);
+	}
+	Put(SQArt::Prop(FName(TEXT("post_lantern"))), 400.f, 0.f, Site.Yaw, 320.f);
+	for (const float Along : { -250.f, 0.f, 250.f })
+	{
+		const FVector2D P = Site.At + U * Along;
+		BlockerSpots.Add(FVector(P.X, P.Y, 300.0));
+	}
+	SetMarks.Add(FVector(SX, SY, 420.0));
+}
+
+int32 ASQArena::BuildScenery(const USQData* D)
+{
+	// Map quality pass (Nov 16 2026): stand up what PlanScenery planned. Every piece is a standing structure with
+	// collision and a horde footprint, fades when it sits between the camera and your reaper, and is recoloured to the
+	// map's palette (KayKit atlases T_KitM_<Scheme> / T_KitD_<Scheme>). Nothing lies loose on open floor: the cargo,
+	// stalls and headstones are part of a building, the yard wall or a fenced plot. Missing meshes are skipped.
+	SceneryISMs.Reset();
+	SetGlowMIDs.Reset();
+	const float Density = FMath::Clamp(D->Tune(TEXT("MapScenery"), 1.f), 0.f, 2.f);
+	if (Density <= 0.f || GridN <= 0) return 0;
+	const bool bHarbour = MapShape == FName(TEXT("Causeways"));
+	const bool bClock = MapShape == FName(TEXT("Climb"));
+	const bool bVisuals = GetNetMode() != NM_DedicatedServer;
+	const float FrontYaw = D->Tune(TEXT("MapKitFrontYaw"), -90.f);
+	const TCHAR* Scheme = bHarbour ? TEXT("Harbour") : (bClock ? TEXT("Clock") : TEXT("Graveyard"));
+	auto KitTint = [this, Scheme](const TCHAR* Pack) -> UMaterialInstanceDynamic*
+	{
+		const FString Name = FString::Printf(TEXT("T_%s_%s"), Pack, Scheme);
+		UTexture* Tex = LoadObject<UTexture>(nullptr, *FString::Printf(TEXT("/Game/Art/Textures/%s.%s"), *Name, *Name), nullptr, LOAD_NoWarn | LOAD_Quiet);
+		return Tex ? SQArt::TintMID(this, Tex, FLinearColor::White) : nullptr;
+	};
+	UMaterialInstanceDynamic* KitMMID = KitTint(TEXT("KitM"));
+	UMaterialInstanceDynamic* KitDMID = KitTint(TEXT("KitD"));
+	const FSQBiomeDef* Biome = D->FindBiome(BiomeId);
+	const FSQArenaPalette Pal = ArenaLoadPalette(BiomeId, Biome);
+	UMaterialInstanceDynamic* PropMID = SQArt::TintMID(this, SQArt::PropTexture(), SQArt::SoftTint(Pal.Prop, 0.3f));
+	auto MIDFor = [KitMMID, KitDMID, PropMID](const FName& MeshName) -> UMaterialInstanceDynamic*
+	{
+		const FString Text = MeshName.ToString();
+		if (Text.StartsWith(TEXT("KitM_"))) return KitMMID;
+		if (Text.StartsWith(TEXT("KitD_"))) return KitDMID;
+		if (Text.StartsWith(TEXT("Set_")) || Text.StartsWith(TEXT("Fair_"))) return nullptr; // their own MI + glow slots
+		return PropMID; // the Halloween kit (crypts, dead trees, fences) shares the prop atlas
+	};
+	int32 Placed = 0, TreesPlaced = 0, Skipped = 0;
+	TSet<int32> PodiumBuilt;
+	for (const FSQScenerySite& Site : ScenerySites)
+	{
+		const float SX = static_cast<float>(Site.At.X);
+		const float SY = static_cast<float>(Site.At.Y);
+		if (Site.Kind == SitePlot)
+		{
+			BuildGravePlot(Site, FrontYaw);
+			continue;
+		}
+		UStaticMesh* Mesh = SQArt::Prop(Site.Mesh);
+		if (!Mesh) { ++Skipped; continue; }
+		const float Scale = (Site.Height > 0.f ? Site.Height / FMath::Max(1.f, static_cast<float>(Mesh->GetBounds().BoxExtent.Z) * 2.f) : 1.f) * Site.Scale;
+		UMaterialInstanceDynamic* MID = MIDFor(Site.Mesh);
+		if (Site.Kind == SiteTreeLine)
+		{
+			if (!IsPropFootprintFree(SX, SY, 60.f)) { ++Skipped; continue; }
+			UInstancedStaticMeshComponent*& ISM = SceneryISMs.FindOrAdd(Site.Mesh);
+			if (!ISM)
+			{
+				ISM = MakeArtISM(Mesh, MID, true, true);
+				ISM->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+				PropBlockers.Add(ISM);
+			}
+			ISM->AddInstance(FTransform(FRotator(0.f, Site.Yaw, 0.f), FVector(SX, SY, GroundZ(SX, SY) - 6.f), FVector(Scale)));
+			BlockerSpots.Add(FVector(SX, SY, 70.0));
+			++TreesPlaced;
+			continue;
+		}
+		float ZOff = Site.ZOff;
+		if (Site.Kind == SiteOnPodium)
+		{
+			if (!PodiumBuilt.Contains(Site.District))
+			{
+				if (!IsPropFootprintFree(SX, SY, 380.f)) { ++Skipped; DistrictFrontAng[Site.District] = -100.f; continue; }
+				ZOff = 0.f; // its podium did not fit: the landmark stands on the ground
+			}
+		}
+		else if (!IsPropFootprintFree(SX, SY, Site.Foot * 0.8f))
+		{
+			++Skipped;
+			continue;
+		}
+		const float Foot = Site.Kind == SiteTree ? 70.f : (Site.Kind == SiteOnPodium && ZOff > 0.f ? 0.f : Site.Foot * 0.85f);
+		if (PlaceSetPiece(Mesh, SX, SY, Site.Yaw, Foot, true, Scale, ZOff, MID))
+		{
+			if (Site.Kind == SitePodium) PodiumBuilt.Add(Site.District);
+			if (Site.Kind == SiteTree) ++TreesPlaced; else ++Placed;
+		}
+	}
+	// --- District lights: a warm pool at each gate and at each landmark's door (no shadows; they flicker with the lamps)
+	const int32 PerDistrict = bVisuals ? FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("MapDistrictLights"), 2.f)), 0, 2) : 0;
+	for (int32 DistrictIdx = 0; DistrictIdx < Districts.Num() && PerDistrict > 0; ++DistrictIdx)
+	{
+		if (!DistrictFrontAng.IsValidIndex(DistrictIdx) || DistrictFrontAng[DistrictIdx] < -50.f) continue;
+		const FSQMapZone& Zone = MapZones[Districts[DistrictIdx].Zone];
+		const float Angs[2] = { DistrictFrontAng[DistrictIdx], DistrictGateAngle(DistrictIdx) };
+		const float Dists[2] = { Zone.Radius - 60.f, Zone.Radius + 150.f };
+		const float LightHeights[2] = { 360.f, 560.f };
+		for (int32 LightIdx = 0; LightIdx < PerDistrict; ++LightIdx)
+		{
+			const float LX = static_cast<float>(Zone.Centre.X) + FMath::Cos(Angs[LightIdx]) * Dists[LightIdx];
+			const float LY = static_cast<float>(Zone.Centre.Y) + FMath::Sin(Angs[LightIdx]) * Dists[LightIdx];
+			UPointLightComponent* Light = NewObject<UPointLightComponent>(this);
+			Light->SetupAttachment(Root);
+			Light->SetRelativeLocation(FVector(LX, LY, GroundZ(LX, LY) + LightHeights[LightIdx]));
+			LampBaseIntensity = D->Tune(TEXT("MapLightIntensity"), 9000.f);
+			Light->SetIntensity(LampBaseIntensity);
+			Light->SetAttenuationRadius(D->Tune(TEXT("MapDistrictLightRadius"), 1400.f));
+			Light->SetLightColor(ArenaHue(Pal.Lamp));
+			Light->SetCastShadows(false);
+			Light->RegisterComponent();
+			MapLights.Add(Light);
+		}
+	}
+	// --- Backdrop: a ring of forest beyond the edge of the arena (no collision: nobody gets there)
+	static const TCHAR* BackNames[3] = { TEXT("KitM_trees_A_large"), TEXT("KitM_trees_B_large"), TEXT("KitM_trees_A_medium") };
+	static const float BackHeights[3] = { 1300.f, 1600.f, 1500.f };
+	int32 BackPlaced = 0;
+	FRandomStream BR(MapSeed ^ 0x3BACD0F1);
+	const int32 WantBack = bVisuals ? FMath::RoundToInt(44.f * Density) : 0;
+	for (int32 BackIdx = 0; BackIdx < WantBack; ++BackIdx)
+	{
+		const int32 Pick = BR.RandRange(0, 2);
+		const float Jitter = BR.FRandRange(-0.3f, 0.3f);
+		const float Out = BR.FRandRange(300.f, 1800.f);
+		const float Vary = BR.FRandRange(0.8f, 1.25f);
+		const float Spin = BR.FRandRange(0.f, 360.f);
+		UStaticMesh* BackMesh = SQArt::Prop(FName(BackNames[Pick]));
+		if (!BackMesh) continue;
+		const FVector Ext = BackMesh->GetBounds().BoxExtent;
+		const float BackScale = BackHeights[Pick] / FMath::Max(1.f, static_cast<float>(Ext.Z) * 2.f) * Vary;
+		const float Ang = 2.f * PI * (static_cast<float>(BackIdx) + Jitter) / static_cast<float>(WantBack);
+		const float Ring = Half + static_cast<float>(FMath::Max(Ext.X, Ext.Y)) * BackScale + Out;
+		const FTransform BackXf(FRotator(0.f, Spin, 0.f), FVector(FMath::Cos(Ang) * Ring, FMath::Sin(Ang) * Ring, -40.f), FVector(BackScale));
+		if (AddArtPart(BackMesh, BackXf, KitMMID, false)) ++BackPlaced;
+	}
+	UE_LOG(LogSQ, Log, TEXT("Map scenery: %d pieces, %d trees, %d backdrop, %d planned sites did not fit"), Placed, TreesPlaced, BackPlaced, Skipped);
+	return Placed + TreesPlaced + BackPlaced;
 }
 
 int32 ASQArena::BuildSetPieces(const USQData* D, bool bVisuals)
@@ -5535,8 +6004,15 @@ int32 ASQArena::BuildSetPieces(const USQData* D, bool bVisuals)
 		float LandmarkAng = OutAng;
 		bool bLandmark = false;
 
-		// --- The landmark building, behind the zone, facing in (the boss arena stays open: no building there)
-		if (!bBoss && Landmarks.Num() > 0)
+		// --- The landmark building, behind the zone, facing in (the boss arena stays open: no building there).
+		// Map quality pass: when PlanScenery planned it (on its podium, opposite the gate) BuildScenery stands it up.
+		if (!bBoss && DistrictFrontAng.IsValidIndex(DistrictIdx) && DistrictFrontAng[DistrictIdx] > -50.f)
+		{
+			LandmarkAng = DistrictFrontAng[DistrictIdx];
+			bLandmark = true;
+			++LandmarksPlaced;
+		}
+		else if (!bBoss && Landmarks.Num() > 0)
 		{
 			UStaticMesh* Mesh = Landmarks[(DistrictIdx + LandmarkShift) % Landmarks.Num()];
 			const float Foot = FootOf(Mesh, 0.85f);
@@ -5621,6 +6097,12 @@ int32 ASQArena::BuildSetPieces(const USQData* D, bool bVisuals)
 						const FVector2D ProbeAt = At + Tan * (Probe * WallLen * 0.38f);
 						bOk = Clear(static_cast<float>(ProbeAt.X), static_cast<float>(ProbeAt.Y), 45.f);
 					}
+					// A planned stall / cargo pile stands in the wall line here: it takes the place of this length
+					for (const FSQScenerySite& Site : ScenerySites)
+					{
+						if (!bOk) break;
+						if (Site.District == DistrictIdx && Site.Kind == SiteSolid && FVector2D::DistSquared(Site.At, At) < FMath::Square(Site.Foot + WallLen * 0.45f)) bOk = false;
+					}
 					if (bOk) Segs.Add({ At, FMath::RadiansToDegrees(Ang) + 90.f });
 				}
 			}
@@ -5629,6 +6111,15 @@ int32 ASQArena::BuildSetPieces(const USQData* D, bool bVisuals)
 				if (!WallISM)
 				{
 					WallISM = MakeArtISM(WallMesh, nullptr, true, true);
+					// One palette per map: the yard wall takes the biome's wall colour (pale set stone reads as white boxes at night)
+					if (UTexture* SetTex = LoadObject<UTexture>(nullptr, TEXT("/Game/Art/Textures/T_Set.T_Set"), nullptr, LOAD_NoWarn | LOAD_Quiet))
+					{
+						const float WallTint = FMath::Clamp(D->Tune(TEXT("MapWallTint"), 1.f), 0.f, 1.f);
+						const FLinearColor MapTint = MapShape == FName(TEXT("Climb")) ? FLinearColor(0.62f, 0.42f, 0.26f)
+							: (MapShape == FName(TEXT("Causeways")) ? FLinearColor(0.5f, 0.6f, 0.62f) : FLinearColor(0.5f, 0.47f, 0.62f));
+						const FLinearColor Tint = FMath::Lerp(FLinearColor::White, MapTint, WallTint);
+						if (UMaterialInstanceDynamic* WallMID = SQArt::TintMID(this, SetTex, Tint)) WallISM->SetMaterial(0, WallMID);
+					}
 					WallISM->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 					PropBlockers.Add(WallISM);
 				}
@@ -5650,18 +6141,98 @@ int32 ASQArena::BuildSetPieces(const USQData* D, bool bVisuals)
 
 	// --- Avenues: trees (or pilings) down both sides of every lane, lamp posts between them
 	const float AvenueGap = FMath::Clamp(D->Tune(TEXT("MapAvenueSpacing"), 820.f), 300.f, 4000.f);
+	const float AvenueOff = FMath::Clamp(D->Tune(TEXT("MapAvenueTreeOff"), 650.f), 200.f, 2000.f);
+	const float AvenueOpen = FMath::Clamp(D->Tune(TEXT("MapAvenueOpen"), 3000.f), 0.f, 9000.f);
 	const int32 AvenueMax = FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("MapAvenueMax"), 72.f)), 0, 300);
 	const int32 LampMax = FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("MapLampPostMax"), 64.f)), 0, 300);
 	UStaticMesh* LampMesh = LampMeshes.Num() > 0 ? LampMeshes[0] : nullptr;
+	// Map quality pass: bunting spans over the lanes (role Span), every MapSpanSpacing cm, two piers either side
+	TArray<UStaticMesh*> SpanMeshes;
+	Load(TEXT("Span"), SpanMeshes);
+	// (iteration 7) wayside pieces: something to pass half way down every lane, set well back, alternating sides
+	TArray<UStaticMesh*> WayMeshes;
+	Load(TEXT("Wayside"), WayMeshes);
+	const float WayGap = FMath::Clamp(D->Tune(TEXT("MapWaysideSpacing"), 2400.f), 800.f, 20000.f);
+	const float WayOff = FMath::Clamp(D->Tune(TEXT("MapWaysideOff"), 950.f), 300.f, 3000.f);
+	const int32 WayMax = FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("MapWaysideMax"), 16.f)), 0, 60);
+	int32 WaysPlaced = 0;
+	const float SpanGap = FMath::Clamp(D->Tune(TEXT("MapSpanSpacing"), 1800.f), 600.f, 8000.f);
+	const int32 SpanMax = FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("MapSpanMax"), 24.f)), 0, 80);
+	int32 SpansPlaced = 0;
 	UInstancedStaticMeshComponent* LampISM = nullptr;
 	UInstancedStaticMeshComponent* LampGlowISM = nullptr;
 	for (const FSQLane& Lane : Lanes)
 	{
 		float Acc = AvenueGap * 0.6f;
+		float SpanAcc = SpanGap * 0.35f;
+		float WayAcc = WayGap * 0.5f;
 		int32 Slot = 0;
 		for (int32 i = 1; i < Lane.Pts.Num(); ++i)
 		{
 			const FVector2D Seg = Lane.Pts[i] - Lane.Pts[i - 1];
+			SpanAcc += static_cast<float>(Seg.Size());
+			WayAcc += static_cast<float>(Seg.Size());
+			if (WayAcc >= WayGap && WayMeshes.Num() > 0 && WaysPlaced < WayMax && Seg.SizeSquared() > 1.0)
+			{
+				UStaticMesh* WayMesh = WayMeshes[WaysPlaced % WayMeshes.Num()];
+				const float WayFoot = FootOf(WayMesh, 0.8f);
+				const FVector2D WayFwd = Seg.GetSafeNormal();
+				const FVector2D WaySide(-WayFwd.Y, WayFwd.X);
+				const float WaySign = (WaysPlaced & 1) ? -1.f : 1.f;
+				const FVector2D WayAt = Lane.Pts[i] + WaySide * (WaySign * (LaneHalfWidth + WayOff + WayFoot));
+				const float WX = static_cast<float>(WayAt.X);
+				const float WY = static_cast<float>(WayAt.Y);
+				bool bWayRoom = Lane.Pts[i].Size() > HubRadius + 900.f;
+				for (const FSQMapZone& Zone : MapZones)
+				{
+					if (Zone.Kind != ESQZoneKind::Hub && FVector2D::Distance(Zone.Centre, WayAt) < Zone.Radius + 2000.f) bWayRoom = false;
+				}
+				// It faces the lane
+				if (bWayRoom && Clear(WX, WY, WayFoot)
+					&& PlaceSetPiece(WayMesh, WX, WY, FMath::RadiansToDegrees(FMath::Atan2(static_cast<float>(-WaySide.Y * WaySign), static_cast<float>(-WaySide.X * WaySign))), WayFoot, true))
+				{
+					++WaysPlaced;
+					WayAcc = 0.f;
+				}
+			}
+			if (SpanAcc >= SpanGap && SpanMeshes.Num() > 0 && SpansPlaced < SpanMax && Seg.SizeSquared() > 1.0)
+			{
+				const FVector2D SpanAt = Lane.Pts[i];
+				const float SX = static_cast<float>(SpanAt.X);
+				const float SY = static_cast<float>(SpanAt.Y);
+				bool bRoom = SpanAt.Size() > HubRadius + 700.f && GroundSlopeDeg(SX, SY) < 12.f;
+				for (const FSQMapZone& Zone : MapZones)
+				{
+					if (Zone.Kind != ESQZoneKind::Hub && FVector2D::Distance(Zone.Centre, SpanAt) < Zone.Radius + 1300.f) bRoom = false;
+				}
+				UStaticMesh* SpanMesh = SpanMeshes[SpansPlaced % SpanMeshes.Num()];
+				const FVector2D SpanFwd = Seg.GetSafeNormal();
+				const FVector2D SpanSide(-SpanFwd.Y, SpanFwd.X);
+				const float PierOff = FootOf(SpanMesh, 1.f) - 30.f;
+				const FVector2D PierA = SpanAt + SpanSide * PierOff;
+				const FVector2D PierB = SpanAt - SpanSide * PierOff;
+				bRoom = bRoom && PierOff > LaneHalfWidth + 90.f
+					&& IsPropFootprintFree(static_cast<float>(PierA.X), static_cast<float>(PierA.Y), 60.f)
+					&& IsPropFootprintFree(static_cast<float>(PierB.X), static_cast<float>(PierB.Y), 60.f);
+				if (bRoom && PlaceSetPiece(SpanMesh, SX, SY, FMath::RadiansToDegrees(FMath::Atan2(static_cast<float>(SpanFwd.Y), static_cast<float>(SpanFwd.X))), 0.f, true))
+				{
+					BlockerSpots.Add(FVector(PierA.X, PierA.Y, 40.0));
+					BlockerSpots.Add(FVector(PierB.X, PierB.Y, 40.0));
+					SetMarks.Add(FVector(PierA.X, PierA.Y, 50.0));
+					SetMarks.Add(FVector(PierB.X, PierB.Y, 50.0));
+					++SpansPlaced;
+					SpanAcc = 0.f;
+					// Drowned Harbour: a drying rack of nets either side, well off the lane
+					UStaticMesh* RackMesh = MapShape == FName(TEXT("Causeways")) ? SQArt::Prop(FName(TEXT("Fair_NetRack"))) : nullptr;
+					for (int32 RackSide = -1; RackMesh && RackSide <= 1; RackSide += 2)
+					{
+						const FVector2D RackAt = SpanAt - SpanFwd * 600.f + SpanSide * (RackSide * (LaneHalfWidth + 1250.f));
+						const float RX = static_cast<float>(RackAt.X);
+						const float RY = static_cast<float>(RackAt.Y);
+						if (Clear(RX, RY, 300.f)) PlaceSetPiece(RackMesh, RX, RY, FMath::RadiansToDegrees(FMath::Atan2(static_cast<float>(SpanSide.Y), static_cast<float>(SpanSide.X))), 300.f, true);
+					}
+				}
+			}
 			Acc += static_cast<float>(Seg.Size());
 			if (Acc < AvenueGap * 0.5f) continue;
 			Acc = 0.f;
@@ -5677,8 +6248,14 @@ int32 ASQArena::BuildSetPieces(const USQData* D, bool bVisuals)
 				if (bTreeSlot && Trees.Num() > 0 && TreesPlaced < AvenueMax)
 				{
 					UStaticMesh* TreeMesh = Trees[Pick % Trees.Num()];
-					const FVector2D At = Lane.Pts[i] + Side * (SideSign * (LaneHalfWidth + 330.f));
-					if (Clear(static_cast<float>(At.X), static_cast<float>(At.Y), 60.f)
+					const FVector2D At = Lane.Pts[i] + Side * (SideSign * (LaneHalfWidth + AvenueOff));
+					// The last stretch before a plaza stays open, so the gate arch frames the landmark from the lane
+					bool bOpen = false;
+					for (const FSQMapZone& Zone : MapZones)
+					{
+						if (Zone.Kind != ESQZoneKind::Hub && FVector2D::Distance(Zone.Centre, Lane.Pts[i]) < Zone.Radius + AvenueOpen) bOpen = true;
+					}
+					if (!bOpen && Clear(static_cast<float>(At.X), static_cast<float>(At.Y), 60.f)
 						&& PlaceSetPiece(TreeMesh, static_cast<float>(At.X), static_cast<float>(At.Y), Yaw, 60.f, true, Scale)) ++TreesPlaced;
 				}
 				else if (!bTreeSlot && LampMesh && LampsPlaced < LampMax)
@@ -5690,6 +6267,7 @@ int32 ASQArena::BuildSetPieces(const USQData* D, bool bVisuals)
 					if (!LampISM)
 					{
 						LampISM = MakeArtISM(LampMesh, nullptr, true, true);
+						ApplySetGlow(LampISM);
 						LampISM->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 						PropBlockers.Add(LampISM);
 					}
@@ -5731,8 +6309,8 @@ int32 ASQArena::BuildSetPieces(const USQData* D, bool bVisuals)
 			if (PlaceSetPiece(Mesh, SX, SY, FMath::RadiansToDegrees(Ang) + 180.f, Foot, true)) ++StatuesPlaced;
 		}
 	}
-	UE_LOG(LogSQ, Log, TEXT("Map set pieces (%s, shape %s): %d landmarks, %d gates, %d wall lengths, %d avenue trees, %d lamp posts, %d statues"),
-		*BiomeId.ToString(), *MapShape.ToString(), LandmarksPlaced, GatesPlaced, WallsPlaced, TreesPlaced, LampsPlaced, StatuesPlaced);
+	UE_LOG(LogSQ, Log, TEXT("Map set pieces (%s, shape %s): %d landmarks, %d gates, %d wall lengths, %d avenue trees, %d lamp posts, %d statues, %d spans, %d wayside"),
+		*BiomeId.ToString(), *MapShape.ToString(), LandmarksPlaced, GatesPlaced, WallsPlaced, TreesPlaced, LampsPlaced, StatuesPlaced, SpansPlaced, WaysPlaced);
 	return LandmarksPlaced;
 }
 

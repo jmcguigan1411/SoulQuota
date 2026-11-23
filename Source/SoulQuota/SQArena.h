@@ -434,7 +434,35 @@ protected:
 	float MacroRaw(float X, float Y) const;
 	void ReadMapShape(const class USQData* D, int32 Seed);
 	int32 BuildSetPieces(const class USQData* D, bool bVisuals);
-	bool PlaceSetPiece(UStaticMesh* Mesh, float X, float Y, float YawDeg, float FootR, bool bFade, float Scale = 1.f);
+	UStaticMeshComponent* PlaceSetPiece(UStaticMesh* Mesh, float X, float Y, float YawDeg, float FootR, bool bFade, float Scale = 1.f,
+		float ZOff = 0.f, UMaterialInstanceDynamic* InMID = nullptr);
+	/** Map quality pass (Nov 16 2026): the district recipe. Every district is composed the same way round the line from
+	 *  its gate through its plaza (landmark on a podium opposite the gate, six fronts shoulder to shoulder, a tall second
+	 *  row, signature set pieces at the shoulders, stalls in the yard wall, tree line, grave plots). Planned BEFORE the
+	 *  terrain is painted, so the ground art can pave an apron and shade the contact under every piece; BuildScenery then
+	 *  stands the pieces up. Mirrors blender_work/mapq/recipes.py (the render the look was iterated in). */
+	struct FSQScenerySite
+	{
+		FVector2D At = FVector2D::ZeroVector;
+		float Yaw = 0.f;       // deg
+		float Foot = 0.f;      // footprint radius (cm)
+		float Height = 0.f;    // > 0: scale the mesh to this height (KayKit pieces); 0 = native size
+		float Scale = 1.f;     // extra scale (tree variation)
+		float ZOff = 0.f;
+		float PierOff = 0.f;   // > 0: stands over / beside a lane on two piers this far either side (no footprint between)
+		FName Mesh;
+		uint8 Kind = 0;        // ESQSiteKind below
+		int32 District = INDEX_NONE;
+	};
+	enum : uint8 { SiteSolid = 0, SiteTree = 1, SitePodium = 2, SitePlot = 3, SiteSpan = 4, SiteOnPodium = 5, SiteTreeLine = 6 };
+	TArray<FSQScenerySite> ScenerySites;
+	TArray<float> DistrictFrontAng;      // per district: the angle its landmark stands at (rad); -100 = none planned
+	void PlanScenery(const class USQData* D);
+	float DistrictGateAngle(int32 DistrictIdx) const;
+	void BuildGravePlot(const FSQScenerySite& Site, float FrontYaw);
+	void ApplySetGlow(UMeshComponent* Comp);
+	TMap<FName, TWeakObjectPtr<UMaterialInstanceDynamic>> SetGlowMIDs;
+	TMap<FName, UInstancedStaticMeshComponent*> SceneryISMs; // per rebuild (the components live in Built)
 	/** Map art pass (Nov 15 2026): dense standing scenery from the CC0 KayKit packs (KitD_ / KitM_): house fronts round
 	 *  every plaza, towers behind, cargo against the buildings, wall runs with banners, groves, a forest backdrop. */
 	int32 BuildScenery(const class USQData* D);

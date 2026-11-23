@@ -246,24 +246,18 @@ turn white... gold version: coins, bundle of coins, coin purse, gold bars"; "no 
 - [ ] Playtest: district density, feature heights, minimap range (Tuning Map*/Minimap* keys)
 - [ ] Gamepad binding for the full map
 
-- [x] Menu readability pass + click-only character select (Nov 10). Playtest: check 1280x720 and 4K for overflow from the lifted small text.
+- [x] Menu readability pass + click-only character select (Nov 10). Playtest 720p/4K for overflow.
 
 ## Map art pass (Nov 10 2026)
 - Done in code: muted ground palette, worn paths, wall contact shade, skate concrete + coping, candle lanes, monuments, vignettes, fireflies, lamp flicker, grade retune, M_GroundV2.
-- Still needed for a sellable look (real art / in-editor work): textured ground with normals, bespoke landmark set pieces, modelled ramps, foliage with wind, Niagara VFX, lighting tuned in the viewport, an environment artist pass or a licensed kit.
-
-- 2026-11-12 (design thread, Docs/MarketAudit.md): runs shortened to the genre norm. Stages 960-1200 s -> 600-840 s, objectives 5-6 -> 3-5, boss health mults 0.57-1.18 -> 0.26-0.71 (model: 11-17 min runs, 150-225 s boss). Faster start: spawn 0.6 -> 1.2 /s, opening swarm at 4 s, tutorial hold 60 -> 20 s, solo countdown 1 s (StartDelaySolo), end screen 20 -> 8 s. Meta: first ranks 40% cost, growth 3.3, loss banks 20%. NightSeconds 90 -> 360 so test play = release length. Recommended, not done: auto-bank souls on map 1, RETRY button, solo lobby skip, 3-prompt tutorial, unlock screen.
+- Still needed for a sellable look (real art / in-editor work): textured ground (grass/dirt/stone with normals), bespoke landmark set pieces per district, modelled ramps instead of shaped terrain, foliage with wind, VFX (Niagara fog wisps, embers), baked or Lumen-tuned lighting checked in the viewport, a paid environment artist pass or a licensed kit.
 
 ## Nov 12 2026 - chase camera (camera thread)
 - Done: third-person chase camera, auto / manual aim setting, overhead camera + aim indicators removed, tutorial / key hints / CONTROLS tab updated.
 - To verify in play: mouse sensitivity feel, camera on steep banks and in bowls (terrain clamp), props hiding between camera and reaper, jump / slide with the horde, fog and far pop-in on the horizon (fog keys belong to the style pass), gamepad look rate.
 - Later: rotating minimap option, proper downed spectate cycling, shop-phase camera look while the cursor is up.
 
-- [x] Nov 12: Style pass (Midnight Fairground): sky + horizon, ink outlines, rim light, vivid palette, effect dials. Pending: tune Style* values from screenshots; cel-banded character shading, painterly ground, bespoke landmarks need an artist or licensed kit.
-
-- 2026-11-12 flow pass: end screen has RETRY / PLAY AGAIN (ENTER) and CHANGE REAPER (C), host or solo only (ASQGameMode::RetryRun / EndToLobby, ASQGameState::bSkipLobby); START REAPING on the main menu is now SOLO and skips the lobby (travel option SQSolo, Tuning SoloSkipLobby); co-op hosting moved to PLAY CO-OP > HOST A LOBBY; the Training Shift is 3 prompts (move+look / weapons fire themselves, crystals level you up / the goal), horde holds only until prompt 1, 7 of 13 tips retired; QUESTS page renamed UNLOCKS with NEW badges (USQSaveGame::QuestsNew) and an unlock strip on the end screen. EndScreenSeconds 8 -> 30 (idle fallback only).
-
-- 2026-11-12 (visual pass, from the first real screenshots): motion blur / film grain / lens flare / fringe off (DefaultEngine.ini); ground palette rationed (one hue per biome, StyleGroundVivid 0, MapDistrictTint 0.04, MapSaturation 1.06); new additive glow material M_SQGlow (setup run builds it); souls are additive teal wisps with 4 sizes, merge at SoulMergeAt, 2 per kill, dim teal on a full sack (no grey balls); ASQFx area impacts/telegraphs layered (shockwave, echo ring, flash, cracks, shards, motes; danger fill grows to impact); glowing spark shapes additive (StyleFxAdditive). Docs/ArtDirection.md has the revised rules.
+- 2026-11-12 flow pass: end screen has RETRY / PLAY AGAIN (ENTER) and CHANGE REAPER (C), host or solo only (ASQGameMode::RetryRun / EndToLobby, ASQGameState::bSkipLobby); START REAPING on the main menu is now SOLO and skips the lobby (travel option SQSolo, Tuning SoloSkipLobby); co-op hosting moved to PLAY CO-OP > HOST A LOBBY; the Training Shift is 3 prompts, horde holds only until prompt 1, 7 of 13 tips retired; QUESTS page renamed UNLOCKS with NEW badges (USQSaveGame::QuestsNew) and an unlock strip on the end screen. EndScreenSeconds 8 -> 30 (idle fallback only).
 
 ## Lantern trail (Nov 12 2026)
 - Done: lantern trail system (see Docs/LanternTrail.md) - FSQMissionDirector trail, ASQLantern beam / dormant + spent posts / footlights, sack growth, HUD row + minimap icons, balance model section 18b.
@@ -274,11 +268,4 @@ turn white... gold version: coins, bundle of coins, coin purse, gold bars"; "no 
 - Needs: rebuild + setup run (imports Set_* meshes). Then screenshots to tune TideGlow, ClockHand*, MapAvenue*, StyleSkylineScale, terrace heights.
 - Later: bridges / cliffs (authored meshes), per-map sky hills, retire unused Ringmaster / Abbot rows.
 
-- 2026-11-15: Animation Remaster 6 (chase camera): the 20 SQ_Sig attacks and all SQ_Run/SQ_Walk takes re-staged to read from behind (wind-up twist, snap through on the unchanged impact frame, overshoot, arms wide of the body); new SQ_Jump_Air pose strip (USQAnimInstance::SetAirborne, sampled by vertical speed), SQ_Jump_Land, SQ_Dash, authored SQ_Slide. REIMPORT_MARKER -> SQ_Marker_Remaster6 (setup run re-imports). Tuning AnimAirRiseSpeed / AnimAirFallSpeed.
-
 - Nov 15 2026: map art pass (ground art M_GroundV3 + KayKit standing scenery, 46 meshes). Needs rebuild + setup run. Next: check screenshots for house facing (MapKitFrontYaw), ground joint strength, scenery density.
-
-- [x] Nov 15: animation pass 2 (Remaster 7): per-reaper E/R casts, state poses, re-staged shared takes and gaits, look offset. Not done: enemy/boss animation, idles, spring bones. Needs rebuild + setup run.
-
-- 2026-11-19: Animation Remaster 9. All 21 reapers rebuilt on the hand-animated KayKit takes with a character layer each (gait, strike feel, idle act); stride matching is bounded (runs skate x1.0-2.0, walks up to x3.4 on the heavy bodies: short legs at 550 cm/s); victory/defeat/bank, SQ_Jump_Land and SQ_Dash on hand-animated bases. Horde takes in Skeleton_*.fbx rebuilt on hand-animated bases (boss roar kept from Nov 7: the long taunt read worse). REIMPORT_MARKER SQ_Marker_Remaster9 (reaper and the four skeleton bodies re-import on the next setup run). Far impostor walk frames not re-baked. Hook for impostor hit-squash and far death-pop written for the SQHordeManager owner.
-- [x] Nov 19: effects remaster checkpoint 5/10: motion kit meshes, per-particle fade (M_SQGlow2), FxRecipes.csv layered effects for all 21 reapers (attack accent, E, R) and shared events, hit starbursts, death wisps, chest / lantern / shrine / level-up / soul hooks, shake. Needs rebuild + art import + style material script. Not verified in the editor.
