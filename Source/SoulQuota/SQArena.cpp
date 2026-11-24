@@ -1376,7 +1376,17 @@ float ASQArena::TideLevel() const
 	if (Phase >= 0.40f && Phase < 0.55f) Alpha = Smooth01((Phase - 0.40f) / 0.15f);
 	else if (Phase >= 0.55f && Phase < 0.85f) Alpha = 1.f;
 	else if (Phase >= 0.85f) Alpha = 1.f - Smooth01((Phase - 0.85f) / 0.15f);
-	return FMath::Lerp(TideLowZ, TideHighZ, Alpha);
+	float Level = FMath::Lerp(TideLowZ, TideHighZ, Alpha);
+	// King Tide (run event, content item 12): the water climbs past the normal high mark, holds, and eases back before the event ends
+	const ASQGameState* TideGS = GetWorld() ? GetWorld()->GetGameState<ASQGameState>() : nullptr;
+	if (TideGS && TideGS->IsEventSpecial(ESQEventSpecial::KingTide) && TideGS->EventEndTime > TideGS->EventStartTime)
+	{
+		const USQData* TideData = USQData::Get(this);
+		const float Rise = TideData ? FMath::Clamp(TideData->Tune(TEXT("KingTideRise"), 120.f), 0.f, 400.f) : 120.f;
+		const float Ramp = FMath::Min(Smooth01(FMath::Clamp((Now() - TideGS->EventStartTime) / 6.f, 0.f, 1.f)), Smooth01(FMath::Clamp((TideGS->EventEndTime - Now()) / 6.f, 0.f, 1.f)));
+		Level = FMath::Lerp(Level, TideHighZ + Rise, Ramp);
+	}
+	return Level;
 }
 
 bool ASQArena::IsFlooded(const FVector2D& P) const
@@ -1394,8 +1404,11 @@ float ASQArena::ClockHandAngle(int32 Hand) const
 {
 	// Hand 0 (the minute hand) sweeps clockwise once per ClockHandPeriod; the others are slower and run the other way
 	const float Speed = 2.f * PI / ClockPeriod;
-	if (Hand == 0) return -Now() * Speed;
-	return Now() * Speed * (Hand == 1 ? 0.42f : 0.27f) + static_cast<float>(Hand) * 2.1f;
+	// Run events can speed the hands up or turn them back (ASQGameState::ClockTime keeps the angle continuous)
+	const ASQGameState* ClockGS = GetWorld() ? GetWorld()->GetGameState<ASQGameState>() : nullptr;
+	const float ClockNow = ClockGS ? ClockGS->ClockTime() : Now();
+	if (Hand == 0) return -ClockNow * Speed;
+	return ClockNow * Speed * (Hand == 1 ? 0.42f : 0.27f) + static_cast<float>(Hand) * 2.1f;
 }
 
 float ASQArena::ClockHandReach(int32 Hand) const

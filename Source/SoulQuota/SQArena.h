@@ -235,6 +235,8 @@ public:
 	const TArray<FVector2D>& GetSpawnerPads() const { return SpawnerSpots; }
 	/** District index whose ground contains (X, Y) (nearest centre within its radius), or INDEX_NONE (hub / open ground). */
 	int32 FindDistrictAt(float X, float Y) const;
+	/** Run events (content item 12): a clear, reachable-ground spot for an event site (the shrine placement rules). False = none found. */
+	bool FindEventSpot(FRandomStream& Rand, float Radius, FVector& Out) const { return FindInteractSpot(Rand, Radius, false, false, Out); }
 	/**
 	 * Lantern trail (Nov 12 2026): the run's lantern sites in the order they light. [0] is the hub, then one site per district
 	 * (never the boss arena), each a real journey from the one before, ending in the district nearest the boss arena.

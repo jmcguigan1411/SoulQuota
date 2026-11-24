@@ -1,0 +1,16 @@
+Id,Kind,Name,Color
+# Content pass (Nov 24 2026, Docs/Content.md). Cosmetics are earned from Quests.csv rewards (Cosmetic:<Id>), never bought.
+# Kind Trail = the colour of YOUR lantern trail marker and guide line on the minimap (local to your screen). Equip on the UNLOCKS page (T / pad Y).
+# Color = sRGB hex. Standard look (nothing equipped) is amber.
+TrailMoss,Trail,Grave Moss,#7BD66A
+TrailWisp,Trail,Wisp Blue,#6FC8FF
+TrailBone,Trail,Bone White,#F2ECD8
+TrailWitchfire,Trail,Witchfire,#B77BFF
+TrailPumpkin,Trail,Pumpkin Glow,#FF8A2A
+TrailTide,Trail,Tide Teal,#35E0C2
+TrailBrass,Trail,Clock Brass,#D8B45A
+TrailEmber,Trail,Ember,#FF5A3C
+TrailFrost,Trail,Frostbite,#BFE9FF
+TrailRose,Trail,Rose Quartz,#FF9CC8
+TrailMoon,Trail,Blood Moon,#E0283C
+TrailGilt,Trail,Gilded,#FFE066

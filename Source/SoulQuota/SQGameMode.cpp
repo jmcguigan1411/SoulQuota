@@ -1,5 +1,7 @@
 // Copyright 2026 Jack McGuigan. All rights reserved.
 #include "SQGameMode.h"
+#include "SQEventSite.h"
+#include "SQShrine.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -373,7 +375,7 @@ void ASQGameMode::Tick(float DeltaSeconds)
 		{
 			if (GS->Arena && !LobbyMission->Biome.IsNone() && (GS->Arena->BiomeId != LobbyMission->Biome || !GS->Arena->HasRolledRunSeed()) && D->FindBiome(LobbyMission->Biome))
 			{
-				GS->Arena->SetBiome(LobbyMission->Biome);
+				GS->Arena->SetBiome(LobbyMission->Biome, GS->bDailyRun ? DailySeed() : -1);
 				PlaceLantern();
 				bLobbyLanternPlaced = true;
 			}
@@ -467,7 +469,19 @@ void ASQGameMode::Tick(float DeltaSeconds)
 
 	case ESQPhase::Night:
 	{
-		const float ActLength = FMath::Max(1.f, GS->StageDuration / 3.f);
+		// The Long Haunt: the field is clear while the host decides; no answer in time = cash out
+		if (GS->LoopChoiceTimeLeft > 0.f)
+		{
+			GS->LoopChoiceTimeLeft -= FMath::Min(DeltaSeconds, 0.25f);
+			if (GS->LoopChoiceTimeLeft <= 0.f)
+			{
+				GS->LoopChoiceTimeLeft = 0.f;
+				EndRun(true);
+			}
+			break;
+		}
+		const bool bInLoop = GS->LoopIndex > 0;
+		const float ActLength = bInLoop ? FMath::Max(1.f, GS->StageDuration) : FMath::Max(1.f, GS->StageDuration / 3.f);
 		// Solo Training Shift (UI agent's tutorial): while the horde holds back for the Reap lesson, the stage clock, objectives and
 		// timeline beats wait too, so the early curve and the first objective start when the lesson is done
 		if (USQTutorial::ShouldHoldSpawns(this))
@@ -478,10 +492,10 @@ void ASQGameMode::Tick(float DeltaSeconds)
 		if (!GS->bFinalSwarm)
 		{
 			GS->StageTime += DeltaSeconds;
-			const int32 Act = FMath::Clamp(FMath::FloorToInt(GS->StageTime / ActLength), 0, 2);
+			const int32 Act = bInLoop ? 2 : FMath::Clamp(FMath::FloorToInt(GS->StageTime / ActLength), 0, 2);
 			if (Act != GS->NightIndex) SetAct(Act);
 			GS->PhaseDuration = ActLength;
-			GS->PhaseTimeLeft = FMath::Max(0.f, static_cast<float>(Act + 1) * ActLength - GS->StageTime);
+			GS->PhaseTimeLeft = bInLoop ? FMath::Max(0.f, GS->StageDuration - GS->StageTime) : FMath::Max(0.f, static_cast<float>(Act + 1) * ActLength - GS->StageTime);
 			if (GS->StageTime >= GS->StageDuration) BeginFinalSwarm();
 		}
 		else
@@ -493,6 +507,7 @@ void ASQGameMode::Tick(float DeltaSeconds)
 		GS->bFinalCall = false;
 		Director.Tick(DeltaSeconds, GS->StageTime);
 		TickTimeline(GS);
+		TickEvents(GS, D, DeltaSeconds);
 		// Probation clause: the held XP is paid out once its time comes
 		if (GS->HeldXP > 0 && (GS->bFinalSwarm || GS->StageProgress() >= GS->ModMax(&FSQModifierDef::HoldXP)))
 		{
@@ -701,13 +716,20 @@ void ASQGameMode::StartStage()
 	GS->RunResult = ESQRunResult::None;
 	GS->RunStats = FSQRunStats();
 	GS->StoryText.Reset();
+	GS->LoopIndex = 0;
+	GS->LoopChoiceTimeLeft = 0.f;
+	GS->LoopBonusGold = 0;
+	GS->LoopBossMod.Reset();
+	bLoopVictoryLocked = false;
+	Director.TrailSeedSalt = 0;
 	LastBanked = 0;
 	BossFightStart = 0.f;
 	BeatsFired.Init(false, SQQuests::Timeline().Num());
 
 	// A new run: placement seed, run clocks, quest run counters on every PC (TeamLevel starts at 1)
-	RunSeed = FMath::Rand() | 1;
+	RunSeed = GS->bDailyRun ? DailySeed() : (FMath::Rand() | 1);
 	RunStartTime = GetWorld()->GetTimeSeconds();
+	PlanEvents(GS, D, true);
 	bRunAnyoneDowned = false;
 	SkullCarriers.Reset();
 	const int32 BaseRerolls = FMath::Max(0, FMath::RoundToInt(D->Tune(TEXT("RerollsPerRun"), 2.f)));
@@ -880,7 +902,38 @@ void ASQGameMode::StartBossFight(ASQCharacter* RungBy)
 		return;
 	}
 	// Bosses.csv Health x co-op x Defiance (failed objectives) x the test length x EconomyBossHealth3 x the mission's (and Hard mode's) BossHealthMult
-	Boss->InitBoss(Def->Id, GS->Defiance, CountTeam(), GS->NightScale() * GS->EconomyHealthMult(true));
+	// The Long Haunt: the boss returns with a twist each loop (cycling), on top of the loop's health and damage
+	int32 LoopDefiance = 0;
+	GS->LoopBossMod.Reset();
+	if (GS->LoopIndex > 0)
+	{
+		const int32 Twist = (GS->LoopIndex - 1) % 4;
+		LoopDefiance = FMath::Min(GS->LoopIndex, FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("EndlessBossDefianceCap"), 6.f)), 0, 20));
+		// Escorts are the mission's own miniboss kind when it has one (falls back to the first horde type inside SpawnSwarm)
+		const FSQMissionDef* TwistMission = GS->GetMission();
+		const FName EscortId = (TwistMission && TwistMission->Minibosses.Num() > 0) ? TwistMission->Minibosses[0].Enemy : FName(TEXT("Brute"));
+		const int32 Escorts = FMath::Clamp(2 + GS->LoopIndex, 2, FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("EndlessEscortCap"), 8.f)), 2, 30));
+		if (Twist == 0 || Twist == 3)
+		{
+			if (GS->Horde) GS->Horde->SpawnSwarm(EscortId, Escorts);
+			GS->LoopBossMod = TEXT("ESCORTED");
+		}
+		if (Twist == 1 || Twist == 3)
+		{
+			if (!GS->bFinalSwarm)
+			{
+				GS->bFinalSwarm = true;
+				GS->FinalSwarmSeconds = 0.f;
+			}
+			GS->LoopBossMod = Twist == 3 ? TEXT("ESCORTED AND SWARMED") : TEXT("SWARMED");
+		}
+		if (Twist == 2)
+		{
+			LoopDefiance += 2;
+			GS->LoopBossMod = TEXT("RELENTLESS");
+		}
+	}
+	Boss->InitBoss(Def->Id, GS->Defiance + LoopDefiance, CountTeam(), GS->NightScale() * GS->EconomyHealthMult(true));
 	GS->Boss = Boss;
 	BossFightStart = GetWorld()->GetTimeSeconds();
 	const FString DefianceText = GS->Defiance > 0 ? FString::Printf(TEXT(" Failed objectives: DEFIANCE x%d!"), GS->Defiance) : FString(TEXT(""));
@@ -934,8 +987,115 @@ void ASQGameMode::HandleBossDefeated()
 		CreditAll(GS, TEXT("SwarmSeconds"), FMath::FloorToInt(GS->FinalSwarmSeconds));
 	}
 	GS->MinibossName.Reset();
+	// The Long Haunt: a cleared loop locks its bonus; then the host chooses to cash out or go round again
+	if (GS->LoopIndex > 0)
+	{
+		const FSQMissionDef* LoopMission = GS->GetMission();
+		const float LoopShare = FMath::Max(0.f, D->Tune(TEXT("EndlessLoopGoldShare"), 0.5f));
+		const float HardGold = (LoopMission && GS->bHardMode) ? LoopMission->HardGoldMult : 1.f;
+		GS->LoopBonusGold = FMath::Clamp(GS->LoopBonusGold + FMath::RoundToInt((LoopMission ? static_cast<float>(LoopMission->ClearGold) : 100.f) * HardGold * LoopShare * static_cast<float>(GS->LoopIndex)), 0, 5000000);
+		CreditAll(GS, TEXT("LoopsCleared"));
+	}
+	const int32 MaxLoops = FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("EndlessMaxLoops"), 50.f)), 0, 999);
+	if (D->Tune(TEXT("EndlessLoops"), 1.f) >= 0.5f && GS->LoopIndex < MaxLoops)
+	{
+		BeginLoopChoice();
+		return;
+	}
 	// Beat the boss = the mission is won
 	EndRun(true);
+}
+
+void ASQGameMode::BeginLoopChoice()
+{
+	ASQGameState* GS = GetGameState<ASQGameState>();
+	const USQData* D = USQData::Get(this);
+	if (!GS || !D) return;
+	// From here the mission is won whatever happens next: what each reaper has earned so far is safe
+	bLoopVictoryLocked = true;
+	for (APlayerState* LockPS : GS->PlayerArray)
+	{
+		if (ASQPlayerState* LockSQ = Cast<ASQPlayerState>(LockPS)) LockSQ->LoopLockedEarned = LockSQ->RunGoldEarned;
+	}
+	Director.End();
+	if (GS->Horde) GS->Horde->ClearAll();
+	if (IsValid(GS->Portal))
+	{
+		GS->Portal->Destroy();
+		GS->Portal = nullptr;
+	}
+	GS->bFinalSwarm = false;
+	GS->FinalSwarmSeconds = 0.f;
+	GS->bBossReady = false;
+	GS->LoopBossMod.Reset();
+	// Anyone down stands back up for the decision
+	for (TActorIterator<ASQCharacter> It(GetWorld()); It; ++It)
+	{
+		if (It->bDowned) It->Revive(D->Tune(TEXT("ReviveFraction"), 0.5f));
+		It->ReleaseSkull();
+	}
+	GS->Phase = ESQPhase::Night;
+	GS->LoopChoiceTimeLeft = FMath::Clamp(D->Tune(TEXT("EndlessChoiceSeconds"), 25.f), 5.f, 120.f);
+	GS->PushBeat(GS->LoopIndex > 0 ? FString::Printf(TEXT("Haunt %d cleared. Cash out, or keep reaping?"), GS->LoopIndex) : FString(TEXT("The boss is down and the mission is won. Cash out, or keep reaping?")), 6);
+}
+
+void ASQGameMode::HandleLoopChoice(bool bKeepGoing)
+{
+	ASQGameState* GS = GetGameState<ASQGameState>();
+	if (!GS || GS->Phase != ESQPhase::Night || GS->LoopChoiceTimeLeft <= 0.f) return;
+	GS->LoopChoiceTimeLeft = 0.f;
+	if (bKeepGoing) StartLoop();
+	else EndRun(true);
+}
+
+void ASQGameMode::StartLoop()
+{
+	ASQGameState* GS = GetGameState<ASQGameState>();
+	const USQData* D = USQData::Get(this);
+	if (!GS || !D) return;
+	const FSQMissionDef* Mission = GS->GetMission();
+	GS->LoopIndex = FMath::Clamp(GS->LoopIndex + 1, 1, 999);
+	GS->AddDifficulty(FMath::Max(0.f, D->Tune(TEXT("EndlessDifficultyPerLoop"), 0.35f)));
+
+	// A shorter stage than the mission's: the crew is already built, so the loop is the trail, the bell and the boss
+	const float BaseSeconds = Mission ? Mission->Duration : 600.f;
+	const float LoopShare = FMath::Clamp(D->Tune(TEXT("EndlessStageShare"), 0.6f), 0.2f, 2.f);
+	GS->StageDuration = FMath::Max(60.f, BaseSeconds * GS->NightScale() * GS->ModProduct(&FSQModifierDef::NightMult) * LoopShare);
+	GS->StageTime = 0.f;
+	// Loops run on the last act's horde (mix, HP step, gold growth) for their whole length
+	GS->NightIndex = 2;
+	GS->PhaseDuration = GS->StageDuration;
+	GS->PhaseTimeLeft = GS->StageDuration;
+	GS->bFinalSwarm = false;
+	GS->FinalSwarmSeconds = 0.f;
+	GS->BossNightProgress = 1.f;
+	GS->MinibossName.Reset();
+	GS->MinibossHealthFrac = 0.f;
+	GS->Defiance = 0;
+	GS->bFinalCall = false;
+	GS->bBossReady = false;
+	GS->StoryText.Reset();
+	BossFightStart = 0.f;
+	BeatsFired.Init(false, SQQuests::Timeline().Num());
+	RunSeed = GS->bDailyRun ? (DailySeed() + GS->LoopIndex * 104729) : (FMath::Rand() | 1);
+	PlanEvents(GS, D, false);
+	if (IsValid(GS->Portal)) GS->Portal->Destroy();
+	GS->Portal = nullptr;
+	for (APlayerState* LoopPS : GS->PlayerArray)
+	{
+		if (ASQPlayerState* LoopSQ = Cast<ASQPlayerState>(LoopPS))
+		{
+			LoopSQ->bTrackHitThisNight = false;
+			LoopSQ->CreditQuest(TEXT("LoopsBegun"));
+		}
+	}
+	PlaceLantern();
+	GS->Phase = ESQPhase::Night;
+	// A different lantern route every loop (same map, same seed for the layout)
+	Director.TrailSeedSalt = GS->LoopIndex * 7919;
+	Director.Begin(GetWorld(), Mission, GS->bHardMode, GS->StageDuration);
+	PlaceChests(2);
+	GS->PushAlert(FString::Printf(TEXT("HAUNT %d. The lanterns relight on a new route; the dead are stronger and so is what they owe you."), GS->LoopIndex));
 }
 
 bool ASQGameMode::TryBuy(ASQPlayerState* Buyer, int32 Index)
@@ -970,6 +1130,11 @@ void ASQGameMode::EndRun(bool bWon)
 	if (GS->Phase == ESQPhase::Victory || GS->Phase == ESQPhase::Defeat || GS->Phase == ESQPhase::Waiting) return;
 	bBossDefeatedPending = false;
 	const bool bWasBossFight = GS->Phase == ESQPhase::Boss;
+	// The Long Haunt: once the mission boss has fallen the run is a win however it ends. A wipe in a later loop keeps
+	// what was locked at the last boss (at the win share) and banks the rest at the loss share.
+	const bool bDiedInLoop = !bWon && bLoopVictoryLocked;
+	if (bLoopVictoryLocked) bWon = true;
+	GS->LoopChoiceTimeLeft = 0.f;
 
 	if (IsValid(GS->Boss))
 	{
@@ -1001,6 +1166,9 @@ void ASQGameMode::EndRun(bool bWon)
 	Stats.BossSeconds = (bWasBossFight || (bWon && BossFightStart > 0.f)) ? FMath::Max(0.f, GetWorld()->GetTimeSeconds() - BossFightStart) : 0.f;
 	Stats.Defiance = GS->Defiance;
 	Stats.FinalSwarmSeconds = GS->FinalSwarmSeconds;
+	Stats.Loops = GS->LoopIndex;
+	Stats.LoopBonusGold = GS->LoopBonusGold;
+	Stats.bDiedInLoop = bDiedInLoop;
 	Stats.bFirstClear = bWon && HostSave && (GS->bHardMode ? !HostSave->HasClearedHard(GS->MissionId) : !HostSave->HasClearedMission(GS->MissionId));
 	const bool bAllObjectives = Stats.ObjectivesTotal > 0 && Stats.ObjectivesDone >= Stats.ObjectivesTotal;
 	Director.End();
@@ -1017,8 +1185,17 @@ void ASQGameMode::EndRun(bool bWon)
 		if (!QuestPS) continue;
 		// Late joiners: a win only counts if they joined before the last act (no hopping into a friend's boss fight for a free unlock)
 		const bool bPlayerWon = bWon && QuestPS->RunJoinNight < 2;
-		const int32 Banked = FMath::Clamp(FMath::RoundToInt(static_cast<float>(QuestPS->RunGoldEarned) * Share * GS->CoinMultiplier()
-			+ (bPlayerWon && Mission ? static_cast<float>(Mission->ClearGold) * HardGold : 0.f)), 0, 10000000);
+		// Wiped in a loop: the gold locked at the last boss banks at the win share, what came after at the loss share
+		float EarnedShare = static_cast<float>(QuestPS->RunGoldEarned) * Share;
+		if (bDiedInLoop)
+		{
+			const float LossShare = FMath::Max(0.f, D ? D->Tune(TEXT("BankShareLoss"), 0.2f) : 0.2f);
+			const float Locked = static_cast<float>(FMath::Clamp(QuestPS->LoopLockedEarned, 0, QuestPS->RunGoldEarned));
+			EarnedShare = Locked * Share + (static_cast<float>(QuestPS->RunGoldEarned) - Locked) * LossShare;
+		}
+		const int32 Banked = FMath::Clamp(FMath::RoundToInt(EarnedShare * GS->CoinMultiplier()
+			+ (bPlayerWon && Mission ? static_cast<float>(Mission->ClearGold) * HardGold : 0.f)
+			+ (bPlayerWon ? static_cast<float>(GS->LoopBonusGold) : 0.f)), 0, 10000000);
 		FSQPlayerRunStats& Line = Stats.Players.AddDefaulted_GetRef();
 		Line.Name = QuestPS->GetPlayerName();
 		Line.ReaperId = QuestPS->ReaperId;
@@ -1030,6 +1207,17 @@ void ASQGameMode::EndRun(bool bWon)
 		if (QuestPS->IsABot() || !Cast<APlayerController>(QuestPS->GetOwner())) continue;
 
 		QuestPS->CreditQuest(TEXT("RunsPlayed"));
+		// Content pass milestone: a run finished alongside at least one other human
+		{
+			int32 Humans = 0;
+			for (APlayerState* HumanPS : GS->PlayerArray)
+			{
+				const ASQPlayerState* HumanSQ = Cast<ASQPlayerState>(HumanPS);
+				if (HumanSQ && !HumanSQ->IsABot() && Cast<APlayerController>(HumanSQ->GetOwner())) ++Humans;
+			}
+			if (Humans >= 2) QuestPS->CreditQuest(TEXT("CoopRuns"));
+			if (GS->bDailyRun) QuestPS->CreditQuest(TEXT("DailyRuns"));
+		}
 		if (bPlayerWon)
 		{
 			QuestPS->CreditQuest(TEXT("RunsWon"));
@@ -1049,7 +1237,9 @@ void ASQGameMode::EndRun(bool bWon)
 		// Bank first (marks the mission cleared: derived quest stats), then the quest run end folds the bests and saves
 		QuestPS->ClientMissionEnd(GS->MissionId, GS->bHardMode, bPlayerWon, Banked, Stats.StageSeconds);
 		QuestPS->ClientQuestRunEnd(bPlayerWon, QuestPS->ReaperId, 0);
+		if (GS->LoopIndex > 0) QuestPS->ClientLoopBest(GS->MissionId, QuestPS->ReaperId, GS->LoopIndex, GS->bHardMode);
 	}
+	bLoopVictoryLocked = false;
 	GS->RunStats = Stats;
 	GS->RunResult = bWon ? ESQRunResult::Victory : ESQRunResult::Defeat;
 	GS->bFinalSwarm = false;
@@ -1066,7 +1256,8 @@ void ASQGameMode::EndRun(bool bWon)
 	GS->PhaseTimeLeft = GS->PhaseDuration;
 	int32 CrewSize = 0;
 	for (TActorIterator<ASQCharacter> CrewIt(GetWorld()); CrewIt; ++CrewIt) CrewSize++;
-	GS->PushAlert(bWon ? FString::Printf(TEXT("MISSION COMPLETE! %s is closed. Death is... mildly impressed."), Mission ? *Mission->Name : TEXT("The contract"))
+	GS->PushAlert(bDiedInLoop ? FString::Printf(TEXT("The crew fell on Haunt %d. The mission still counts, and everything locked at the last boss is banked."), GS->LoopIndex)
+		: bWon ? FString::Printf(TEXT("MISSION COMPLETE! %s is closed. Death is... mildly impressed."), Mission ? *Mission->Name : TEXT("The contract"))
 		: (CrewSize <= 1 ? FString(TEXT("Reaped. Death is filling out the paperwork.")) : FString(TEXT("The whole crew is skulls. Death is filling out the paperwork."))));
 }
 
@@ -1093,6 +1284,12 @@ void ASQGameMode::ResetRun()
 		}
 	}
 	Director.End();
+	GS->LoopIndex = 0;
+	GS->LoopChoiceTimeLeft = 0.f;
+	GS->LoopBonusGold = 0;
+	GS->LoopBossMod.Reset();
+	bLoopVictoryLocked = false;
+	Director.TrailSeedSalt = 0;
 	if (GS->Horde) GS->Horde->ClearAll();
 	GS->ResetTeamProgress();
 	if (IsValid(GS->Boss)) GS->Boss->Destroy();
@@ -1506,4 +1703,367 @@ void ASQGameMode::TickQuestTracking(ASQGameState* GS, const USQData* D, float De
 		TrackPS->TrackPlateau = OnTop;
 	}
 	SkullCarriers = MoveTemp(CarriedNow);
+}
+
+// ============================================================ run events, district conditions, Daily Haunt (content item 12)
+
+int32 ASQGameMode::DailySeed()
+{
+	// yyyymmdd scrambled into a positive, odd seed (ASQArena::SetBiome treats 0 as "fixed layout" and < 0 as "roll one")
+	const uint32 Mixed = static_cast<uint32>(ASQGameState::TodayKey()) * 2654435761u;
+	return static_cast<int32>((Mixed >> 1) & 0x3fffffffu) | 1;
+}
+
+void ASQGameMode::ToggleDaily()
+{
+	ASQGameState* GS = GetGameState<ASQGameState>();
+	const USQData* D = USQData::Get(this);
+	if (!GS || !D || GS->Phase != ESQPhase::Waiting) return;
+	GS->bDailyRun = !GS->bDailyRun;
+	// Same map for everyone today (or back to a fresh random one)
+	if (const FSQMissionDef* DailyMission = GS->GetMission())
+	{
+		if (GS->Arena && !DailyMission->Biome.IsNone() && D->FindBiome(DailyMission->Biome))
+		{
+			GS->Arena->SetBiome(DailyMission->Biome, GS->bDailyRun ? DailySeed() : -1);
+			PlaceLantern();
+		}
+	}
+	GS->PushAlert(GS->bDailyRun ? TEXT("DAILY HAUNT: today's map, events and district conditions. One bonus payout a day.") : TEXT("Daily Haunt off: a fresh random map."));
+}
+
+void ASQGameMode::SetClockRate(ASQGameState* GS, float NewRate)
+{
+	if (!GS || FMath::IsNearlyEqual(GS->ClockRate, NewRate)) return;
+	// Keep the hand angle continuous: T = Now * Rate + Offset must not jump when the rate changes
+	const float ServerNow = GS->GetServerWorldTimeSeconds();
+	const float Before = GS->ClockTime();
+	GS->ClockRate = NewRate;
+	GS->ClockOffset = Before - ServerNow * NewRate;
+}
+
+void ASQGameMode::PlanEvents(ASQGameState* GS, const USQData* D, bool bNewRun)
+{
+	if (!GS || !D) return;
+	// Whatever was running ends quietly (a new run or the next Long Haunt loop)
+	if (!GS->EventId.IsNone() || EventSite.IsValid()) EndEvent(GS, D, false, true);
+	EventTimes.Reset();
+	EventsStarted = 0;
+	EventHold = 0.f;
+	EventRetryTimer = 0.f;
+	bEventHadMiniboss = false;
+	if (bNewRun)
+	{
+		EventsUsed.Reset();
+		GS->EventsDone = 0;
+		GS->ClockRate = 1.f;
+		GS->ClockOffset = 0.f;
+	}
+	FRandomStream Stream(RunSeed + 31337 + GS->LoopIndex * 613);
+	// The Training Shift stays quiet; so does a table with no events
+	int32 Count = FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("EventsPerRun"), 3.f)), 0, 8);
+	if (GS->LoopIndex > 0) Count = FMath::Clamp(Count + FMath::RoundToInt(D->Tune(TEXT("EventLoopExtra"), 1.f)), 0, 8);
+	if (USQTutorial::ShouldHoldSpawns(this)) Count = 0;
+	const float FirstAt = FMath::Clamp(D->Tune(TEXT("EventFirstAt"), 0.12f), 0.02f, 0.9f);
+	const float LastAt = FMath::Clamp(D->Tune(TEXT("EventLastAt"), 0.85f), FirstAt, 0.95f);
+	for (int32 EventIdx = 0; EventIdx < Count; ++EventIdx)
+	{
+		// One per equal slice of the window, jittered inside its slice so two never land together
+		const float Slice = (LastAt - FirstAt) / static_cast<float>(Count);
+		EventTimes.Add(FirstAt + Slice * (static_cast<float>(EventIdx) + Stream.FRandRange(0.1f, 0.7f)));
+	}
+
+	// District conditions: rolled once per run, on districts that are not the boss arena
+	if (bNewRun)
+	{
+		GS->ConditionIds.Reset();
+		GS->ConditionDistricts.Reset();
+		const int32 Wanted = FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("DistrictConditions"), 2.f)), 0, 6);
+		TArray<const FSQEventDef*> Conditions;
+		for (const FSQEventDef& Ev : SQQuests::Events())
+		{
+			if (Ev.Kind == ESQEventKind::Condition && Ev.Weight > 0.f && (Ev.Biome.IsNone() || Ev.Biome == CurrentBiome())) Conditions.Add(&Ev);
+		}
+		TArray<int32> Free;
+		if (GS->Arena)
+		{
+			TArray<FVector> BossSpots;
+			int32 BossDistrict = INDEX_NONE;
+			if (GS->Arena->GetObjectiveSpots(TEXT("Boss"), 1, BossSpots) && BossSpots.Num() > 0)
+			{
+				BossDistrict = GS->Arena->FindDistrictAt(static_cast<float>(BossSpots[0].X), static_cast<float>(BossSpots[0].Y));
+			}
+			const int32 DistrictCount = GS->Arena->GetDistricts().Num();
+			for (int32 DistrictIdx = 0; DistrictIdx < DistrictCount; ++DistrictIdx)
+			{
+				if (DistrictIdx != BossDistrict) Free.Add(DistrictIdx);
+			}
+		}
+		for (int32 CondIdx = 0; CondIdx < Wanted && Conditions.Num() > 0 && Free.Num() > 0; ++CondIdx)
+		{
+			const int32 PickCond = Stream.RandRange(0, Conditions.Num() - 1);
+			const int32 PickFree = Stream.RandRange(0, Free.Num() - 1);
+			GS->ConditionIds.Add(Conditions[PickCond]->Id);
+			GS->ConditionDistricts.Add(Free[PickFree]);
+			Conditions.RemoveAtSwap(PickCond);
+			Free.RemoveAtSwap(PickFree);
+		}
+	}
+}
+
+bool ASQGameMode::StartEvent(ASQGameState* GS, const USQData* D, const FSQEventDef& Def)
+{
+	UWorld* World = GetWorld();
+	if (!World || !GS || !D || !GS->Horde) return false;
+	const float ServerNow = GS->GetServerWorldTimeSeconds();
+	FVector SitePos = FVector::ZeroVector;
+	bool bHasPos = false;
+	if (Def.Kind == ESQEventKind::Hunt)
+	{
+		// One tracked miniboss at a time: wait for a timeline miniboss to die first
+		if (GS->Horde->HasMiniboss() || Def.Enemy.IsNone()) return false;
+		GS->Horde->SpawnMiniboss(Def.Enemy, Def.HealthMult, 1.f, Def.Name, Def.Reward.Contains(TEXT("Chest")));
+		if (!GS->Horde->HasMiniboss()) return false; // no safe spot this tick: try again shortly
+		if (!Def.Escort.IsNone() && Def.Count > 0) GS->Horde->SpawnSwarm(Def.Escort, Def.Count);
+		bEventHadMiniboss = true;
+		FVector2D HuntAt;
+		if (GS->Horde->GetMinibossPos(HuntAt))
+		{
+			SitePos = FVector(HuntAt.X, HuntAt.Y, 0.f);
+			bHasPos = true;
+		}
+	}
+	else if (Def.Kind == ESQEventKind::Site)
+	{
+		if (!GS->Arena) return false;
+		const float Radius = FMath::Clamp(D->Tune(TEXT("EventSiteRadius"), 260.f), 120.f, 600.f);
+		FRandomStream SpotStream(RunSeed + 9001 + EventsStarted * 97 + GS->LoopIndex * 389);
+		if (!GS->Arena->FindEventSpot(SpotStream, Radius, SitePos)) return false;
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		ASQEventSite* Site = World->SpawnActor<ASQEventSite>(ASQEventSite::StaticClass(), SitePos, FRotator::ZeroRotator, SpawnParams);
+		if (!Site) return false;
+		Site->InitSite(Def.Id, Radius);
+		EventSite = Site;
+		bHasPos = true;
+	}
+	else if (Def.Kind != ESQEventKind::Ambient)
+	{
+		return false;
+	}
+
+	if (Def.Special == ESQEventSpecial::ClockFast) SetClockRate(GS, FMath::Clamp(D->Tune(TEXT("ClockFastRate"), 2.f), 1.f, 4.f));
+	else if (Def.Special == ESQEventSpecial::ClockReverse) SetClockRate(GS, -1.f);
+
+	GS->EventId = Def.Id;
+	GS->EventPos = SitePos;
+	GS->bEventHasPos = bHasPos;
+	GS->EventStartTime = ServerNow;
+	GS->EventEndTime = ServerNow + Def.Seconds;
+	GS->EventHoldPct = 0;
+	EventHold = 0.f;
+	EventPosTimer = 0.f;
+	EventsUsed.AddUnique(Def.Id);
+	GS->PushBeat(Def.Banner.IsEmpty() ? Def.Name.ToUpper() : Def.Banner, 8);
+	if (!Def.Hint.IsEmpty()) GS->PushAlert(Def.Hint);
+	return true;
+}
+
+void ASQGameMode::GrantEventReward(ASQGameState* GS, const USQData* D, const FSQEventDef& Def, const FVector& At)
+{
+	UWorld* World = GetWorld();
+	if (!World || !GS || !D) return;
+	TArray<ASQPlayerState*> Crew;
+	for (APlayerState* EachPS : GS->PlayerArray)
+	{
+		if (ASQPlayerState* CrewPS = Cast<ASQPlayerState>(EachPS)) Crew.Add(CrewPS);
+	}
+	TArray<FString> Parts;
+	Def.Reward.ParseIntoArray(Parts, TEXT("+"), true);
+	for (const FString& Part : Parts)
+	{
+		TArray<FString> Bits;
+		Part.TrimStartAndEnd().ParseIntoArray(Bits, TEXT(":"), true);
+		if (Bits.Num() == 0) continue;
+		const FString& Kind = Bits[0];
+		if (Kind == TEXT("Chest"))
+		{
+			// A Hunt's chest drops where the creature died (ASQHordeManager, bFreeChest); a Site's rises round the site: one per reaper
+			if (Def.Kind != ESQEventKind::Site) continue;
+			const int32 Chests = FMath::Clamp(Crew.Num(), 1, 8);
+			for (int32 ChestIdx = 0; ChestIdx < Chests; ++ChestIdx)
+			{
+				const float Angle = 2.f * PI * static_cast<float>(ChestIdx) / static_cast<float>(Chests);
+				ASQChest::SpawnChest(World, FVector(At.X + FMath::Cos(Angle) * 170.f, At.Y + FMath::Sin(Angle) * 170.f, 0.f), true);
+			}
+		}
+		else if (Kind == TEXT("Gold") && Bits.Num() >= 2)
+		{
+			const int32 Gold = FMath::Max(0, FMath::RoundToInt(FCString::Atof(*Bits[1]) * GS->GoldMultiplier() * GS->GoldNightGrowth()));
+			for (ASQPlayerState* CrewPS : Crew) CrewPS->AddGold(Gold);
+		}
+		else if (Kind == TEXT("XP") && Bits.Num() >= 2)
+		{
+			// Dropped as pickups at the spot (the team shares XP anyway)
+			const int32 XP = FMath::Clamp(FCString::Atoi(*Bits[1]), 0, 100000);
+			if (GS->Horde && XP > 0) GS->Horde->DropXP(FVector2D(At.X, At.Y), XP * FMath::Max(1, Crew.Num()));
+		}
+		else if ((Kind == TEXT("Boost") && Bits.Num() >= 4) || (Kind == TEXT("Ally") && Bits.Num() >= 2))
+		{
+			// Ally: the freed spirit lends every reaper its strength for a while (a visible companion needs new art: Docs/Content.md)
+			const bool bAlly = Kind == TEXT("Ally");
+			const FName Stat = bAlly ? FName(TEXT("DamageMult")) : FName(*Bits[1]);
+			const float Value = bAlly ? FMath::Clamp(D->Tune(TEXT("EventAllyDamage"), 0.2f), 0.f, 2.f) : FCString::Atof(*Bits[2]);
+			const float Seconds = FMath::Clamp(FCString::Atof(*Bits[bAlly ? 1 : 3]), 1.f, 600.f);
+			if (USQBoostLedger* Ledger = USQBoostLedger::Get(this))
+			{
+				for (TActorIterator<ASQCharacter> It(World); It; ++It)
+				{
+					if (IsValid(*It)) Ledger->AddBoost(*It, Stat, Value, Seconds);
+				}
+			}
+		}
+	}
+}
+
+void ASQGameMode::EndEvent(ASQGameState* GS, const USQData* D, bool bDone, bool bQuiet)
+{
+	if (!GS) return;
+	const FSQEventDef* Def = GS->ActiveEvent();
+	const FVector At = GS->EventPos;
+	if (ASQEventSite* Site = EventSite.Get()) Site->Finish(bDone);
+	EventSite = nullptr;
+	// The hands go back to real time (continuous), whatever the event did to them
+	SetClockRate(GS, 1.f);
+	if (Def && Def->Kind == ESQEventKind::Hunt && !bDone && GS->Horde) GS->Horde->ForfeitMinibossChest();
+	GS->ClearEventState();
+	EventHold = 0.f;
+	bEventHadMiniboss = false;
+	if (!Def || !D || bQuiet) return;
+	// Ambient events simply pass; Hunts and Sites are won or lost
+	const bool bCounts = bDone || Def->Kind == ESQEventKind::Ambient;
+	if (bCounts)
+	{
+		if (bDone)
+		{
+			GrantEventReward(GS, D, *Def, At);
+			// A broken seal lets the curse out
+			if (Def->Kind == ESQEventKind::Site && !Def->Escort.IsNone() && Def->Count > 0 && GS->Horde) GS->Horde->SpawnEnemyNear(Def->Escort, FVector2D(At.X, At.Y), Def->Count, 420.f);
+		}
+		GS->EventsDone++;
+		CreditAll(GS, TEXT("EventsDone"), 1);
+		if (Def->Kind != ESQEventKind::Ambient) GS->PushBeat(FString::Printf(TEXT("%s: DONE"), *Def->Name.ToUpper()), 9);
+	}
+	else
+	{
+		GS->PushAlert(FString::Printf(TEXT("%s: missed."), *Def->Name));
+	}
+}
+
+void ASQGameMode::TickEvents(ASQGameState* GS, const USQData* D, float DeltaSeconds)
+{
+	if (!GS || !D || !GS->Horde) return;
+	const float ServerNow = GS->GetServerWorldTimeSeconds();
+
+	if (const FSQEventDef* Def = GS->ActiveEvent())
+	{
+		// The bell has rung / the swarm is here: events step aside for the finale
+		if (GS->bFinalSwarm || GS->bBossReady)
+		{
+			EndEvent(GS, D, false, true);
+			return;
+		}
+		if (Def->Kind == ESQEventKind::Hunt)
+		{
+			EventPosTimer -= DeltaSeconds;
+			FVector2D HuntAt;
+			if (!GS->Horde->HasMiniboss())
+			{
+				EndEvent(GS, D, bEventHadMiniboss, false);
+				return;
+			}
+			if (EventPosTimer <= 0.f && GS->Horde->GetMinibossPos(HuntAt))
+			{
+				EventPosTimer = 0.5f;
+				GS->EventPos = FVector(HuntAt.X, HuntAt.Y, 0.f);
+				GS->bEventHasPos = true;
+			}
+		}
+		else if (Def->Kind == ESQEventKind::Site)
+		{
+			const ASQEventSite* Site = EventSite.Get();
+			if (!Site)
+			{
+				EndEvent(GS, D, false, true);
+				return;
+			}
+			// Any standing reaper (bots count) in the ring works the hold; it drains slowly when the ring is empty
+			int32 Inside = 0;
+			const FVector SiteAt = Site->GetActorLocation();
+			for (TActorIterator<ASQCharacter> It(GetWorld()); It; ++It)
+			{
+				const ASQCharacter* Reaper = *It;
+				if (!IsValid(Reaper) || Reaper->bDowned) continue;
+				if (FVector::DistSquared2D(Reaper->GetActorLocation(), SiteAt) <= FMath::Square(Site->Radius)) Inside++;
+			}
+			if (Inside > 0) EventHold += DeltaSeconds * (1.f + 0.25f * static_cast<float>(FMath::Min(Inside, 4) - 1));
+			else EventHold = FMath::Max(0.f, EventHold - DeltaSeconds * 0.5f);
+			GS->EventHoldPct = static_cast<uint8>(FMath::Clamp(FMath::RoundToInt(100.f * EventHold / FMath::Max(0.2f, Def->Hold)), 0, 100));
+			if (EventHold >= Def->Hold)
+			{
+				EndEvent(GS, D, true, false);
+				return;
+			}
+		}
+		if (ServerNow >= GS->EventEndTime) EndEvent(GS, D, Def->Kind == ESQEventKind::Ambient, false);
+		return;
+	}
+
+	// Nothing running: is the next one due?
+	if (GS->bFinalSwarm || GS->bBossReady || !EventTimes.IsValidIndex(EventsStarted) || GS->StageProgress() < EventTimes[EventsStarted]) return;
+	EventRetryTimer -= DeltaSeconds;
+	if (EventRetryTimer > 0.f) return;
+	EventRetryTimer = 3.f;
+
+	// Weighted pick from this map's events (unused ones first), seeded by the run so a Daily Haunt plays the same everywhere
+	TArray<const FSQEventDef*> Pool;
+	float Total = 0.f;
+	for (int32 Pass = 0; Pass < 2 && Pool.Num() == 0; ++Pass)
+	{
+		for (const FSQEventDef& Ev : SQQuests::Events())
+		{
+			if (Ev.Kind == ESQEventKind::Condition || Ev.Weight <= 0.f) continue;
+			if (!Ev.Biome.IsNone() && Ev.Biome != CurrentBiome()) continue;
+			if (Pass == 0 && EventsUsed.Contains(Ev.Id)) continue;
+			Pool.Add(&Ev);
+			Total += Ev.Weight;
+		}
+	}
+	if (Pool.Num() == 0 || Total <= 0.f)
+	{
+		EventsStarted = EventTimes.Num();
+		return;
+	}
+	FRandomStream Stream(RunSeed + 4409 + EventsStarted * 131 + GS->LoopIndex * 977);
+	float Roll = Stream.FRandRange(0.f, Total);
+	const FSQEventDef* Pick = Pool.Last();
+	for (const FSQEventDef* Each : Pool)
+	{
+		Roll -= Each->Weight;
+		if (Roll <= 0.f)
+		{
+			Pick = Each;
+			break;
+		}
+	}
+	if (StartEvent(GS, D, *Pick))
+	{
+		EventsStarted++;
+		EventRetryTimer = 0.f;
+	}
+	else if (GS->StageProgress() > EventTimes[EventsStarted] + 0.08f)
+	{
+		// Could not start for a while (a miniboss in the way, no clear spot): skip this slot rather than stack up
+		EventsStarted++;
+	}
 }

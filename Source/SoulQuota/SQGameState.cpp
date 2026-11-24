@@ -42,6 +42,22 @@ void ASQGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
 	DOREPLIFETIME(ASQGameState, Horde);
 	DOREPLIFETIME(ASQGameState, Arena);
 	DOREPLIFETIME(ASQGameState, bEndless);
+	DOREPLIFETIME(ASQGameState, LoopIndex);
+	DOREPLIFETIME(ASQGameState, EventId);
+	DOREPLIFETIME(ASQGameState, EventPos);
+	DOREPLIFETIME(ASQGameState, bEventHasPos);
+	DOREPLIFETIME(ASQGameState, EventStartTime);
+	DOREPLIFETIME(ASQGameState, EventEndTime);
+	DOREPLIFETIME(ASQGameState, EventHoldPct);
+	DOREPLIFETIME(ASQGameState, EventsDone);
+	DOREPLIFETIME(ASQGameState, ClockRate);
+	DOREPLIFETIME(ASQGameState, ClockOffset);
+	DOREPLIFETIME(ASQGameState, ConditionIds);
+	DOREPLIFETIME(ASQGameState, ConditionDistricts);
+	DOREPLIFETIME(ASQGameState, bDailyRun);
+	DOREPLIFETIME(ASQGameState, LoopChoiceTimeLeft);
+	DOREPLIFETIME(ASQGameState, LoopBonusGold);
+	DOREPLIFETIME(ASQGameState, LoopBossMod);
 	DOREPLIFETIME(ASQGameState, AlertText);
 	DOREPLIFETIME(ASQGameState, AlertServerTime);
 	DOREPLIFETIME(ASQGameState, StoryText);
@@ -146,6 +162,10 @@ void ASQGameState::ResetTeamProgress()
 	BeatText.Reset();
 	BeatServerTime = -100.f;
 	BeatKind = 0;
+	ClearEventState();
+	EventsDone = 0;
+	ConditionIds.Reset();
+	ConditionDistricts.Reset();
 	MinibossName.Reset();
 	MinibossHealthFrac = 0.f;
 	HeldXP = 0;
@@ -176,7 +196,8 @@ float ASQGameState::MissionModValue(float FSQModifierDef::* Field) const
 	const FSQMissionDef* Mission = GetMission();
 	if (!Mission) return 1.f;
 	if (Field == &FSQModifierDef::SpawnMult) return Mission->Mult(Mission->SpawnMult, Mission->HardSpawnMult, bHardMode);
-	if (Field == &FSQModifierDef::EnemyDamageMult) return Mission->Mult(Mission->DamageMult, Mission->HardDamageMult, bHardMode);
+	if (Field == &FSQModifierDef::EnemyDamageMult) return Mission->Mult(Mission->DamageMult, Mission->HardDamageMult, bHardMode) * LoopDamageMult();
+	if (Field == &FSQModifierDef::EliteMult) return LoopEliteMult();
 	if (Field == &FSQModifierDef::GoldMult) return Mission->Mult(Mission->GoldMult, Mission->HardGoldMult, bHardMode);
 	return 1.f;
 }
@@ -185,7 +206,31 @@ float ASQGameState::MissionHealthMult(bool bBoss) const
 {
 	const FSQMissionDef* Mission = GetMission();
 	if (!Mission) return 1.f;
-	return bBoss ? Mission->Mult(Mission->BossHealthMult, Mission->HardBossHealthMult, bHardMode) : Mission->Mult(Mission->HealthMult, Mission->HardHealthMult, bHardMode);
+	return (bBoss ? Mission->Mult(Mission->BossHealthMult, Mission->HardBossHealthMult, bHardMode) : Mission->Mult(Mission->HealthMult, Mission->HardHealthMult, bHardMode)) * LoopHealthMult();
+}
+
+float ASQGameState::LoopHealthMult() const
+{
+	if (LoopIndex <= 0) return 1.f;
+	const USQData* D = USQData::Get(this);
+	const float Per = D ? FMath::Clamp(D->Tune(TEXT("EndlessHealthPerLoop"), 0.6f), 0.f, 5.f) : 0.6f;
+	return FMath::Min(1.f + Per * static_cast<float>(LoopIndex), D ? FMath::Max(1.f, D->Tune(TEXT("EndlessHealthCap"), 40.f)) : 40.f);
+}
+
+float ASQGameState::LoopDamageMult() const
+{
+	if (LoopIndex <= 0) return 1.f;
+	const USQData* D = USQData::Get(this);
+	const float Per = D ? FMath::Clamp(D->Tune(TEXT("EndlessDamagePerLoop"), 0.2f), 0.f, 5.f) : 0.2f;
+	return FMath::Min(1.f + Per * static_cast<float>(LoopIndex), D ? FMath::Max(1.f, D->Tune(TEXT("EndlessDamageCap"), 6.f)) : 6.f);
+}
+
+float ASQGameState::LoopEliteMult() const
+{
+	if (LoopIndex <= 0) return 1.f;
+	const USQData* D = USQData::Get(this);
+	const float Per = D ? FMath::Clamp(D->Tune(TEXT("EndlessElitePerLoop"), 0.5f), 0.f, 5.f) : 0.5f;
+	return FMath::Min(1.f + Per * static_cast<float>(LoopIndex), 6.f);
 }
 
 float ASQGameState::StageHealthSmoothing() const
@@ -366,4 +411,59 @@ const TCHAR* ASQGameState::PingLabel(uint8 Kind)
 	case 5: return TEXT("THANKS");
 	default: return TEXT("HERE");
 	}
+}
+
+// ============================================================ run events (content item 12)
+
+const FSQEventDef* ASQGameState::ActiveEvent() const
+{
+	return EventId.IsNone() ? nullptr : SQQuests::FindEvent(EventId);
+}
+
+float ASQGameState::EventMult(float FSQEventDef::* Field) const
+{
+	const FSQEventDef* Ev = ActiveEvent();
+	return Ev ? Ev->*Field : 1.f;
+}
+
+const FSQEventDef* ASQGameState::ConditionOn(int32 District) const
+{
+	if (District == INDEX_NONE) return nullptr;
+	for (int32 CondIdx = 0; CondIdx < ConditionIds.Num() && CondIdx < ConditionDistricts.Num(); ++CondIdx)
+	{
+		if (ConditionDistricts[CondIdx] == District) return SQQuests::FindEvent(ConditionIds[CondIdx]);
+	}
+	return nullptr;
+}
+
+float ASQGameState::DropMult(const FVector2D& Pos, float FSQEventDef::* Field) const
+{
+	float Mult = EventMult(Field);
+	if (ConditionIds.Num() > 0 && Arena)
+	{
+		if (const FSQEventDef* Cond = ConditionOn(Arena->FindDistrictAt(static_cast<float>(Pos.X), static_cast<float>(Pos.Y)))) Mult *= Cond->*Field;
+	}
+	return FMath::Clamp(Mult, 0.1f, 8.f);
+}
+
+bool ASQGameState::IsEventSpecial(ESQEventSpecial Special) const
+{
+	const FSQEventDef* Ev = ActiveEvent();
+	return Ev && Ev->Special == Special;
+}
+
+int32 ASQGameState::TodayKey()
+{
+	const FDateTime Today = FDateTime::Now();
+	return Today.GetYear() * 10000 + Today.GetMonth() * 100 + Today.GetDay();
+}
+
+void ASQGameState::ClearEventState()
+{
+	// The clock hands keep their rate / offset only through an event: back to real time without a jump is the game mode's job
+	EventId = NAME_None;
+	bEventHasPos = false;
+	EventHoldPct = 0;
+	EventStartTime = 0.f;
+	EventEndTime = 0.f;
 }

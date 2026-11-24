@@ -1,0 +1,22 @@
+Id,Name,Kind,Special,Biome,Weight,Seconds,Hold,Banner,Hint,SpawnMult,EliteMult,XPMult,SoulMult,GoldMult,Enemy,HealthMult,Escort,Count,Reward,Color,Model,Height
+# Run events (content item 12, Nov 24 2026). ASQGameMode::TickEvents rolls EventsPerRun of these per run from the RunSeed (and again each Long Haunt loop).
+# Kind: Ambient (map-wide for Seconds) | Hunt (a named miniboss; done when it dies) | Site (a marked spot; reapers stand in the ring for Hold seconds) | Condition (a district condition for the whole run: drops inside that district are multiplied).
+# Special: Fog (minimap fogged) | KingTide (Harbour: the tide comes in and stays in) | ClockFast / ClockReverse (Clocktower hands) | Toll (multipliers last until the site is broken).
+# Biome: blank = any map. Weight 0 = never rolled. Mults apply while the event is active (blank = 1). Reward: Chest | Gold:N | XP:N | Boost:Stat:Value:Seconds | Ally:Seconds (several joined with +).
+# Enemy / HealthMult: the Hunt's creature. Escort / Count: a swarm that arrives with a Hunt or bursts out of a completed Site. Model = Art/Props name (primitive fallback), Height cm.
+# No commas inside Banner / Hint text.
+TitheCaravan,The Tithe Caravan,Hunt,,,10,80,,A TITHE CARAVAN IS CROSSING THE MAP,Break the strongbox bearer before it gets away,,,,,,Brute,2.5,Lurcher,8,Chest,#FFD36B,,
+GiltScuttler,The Gilt Scuttler,Hunt,,,9,45,,A GILT SCUTTLER IS LOOSE,Catch it before it burrows: it is stuffed with gold,,,,,,WickRunner,14,,0,Gold:120,#FFC940,,
+SoulStorm,Soul Storm,Ambient,,,10,40,,A SOUL STORM IS BLOWING THROUGH,Every kill sheds double souls while it lasts,,,,2,,,,,,,#5CF2D6,,
+BloodMoon,Blood Moon,Ambient,,,8,60,,THE MOON TURNS RED,More of them and more elites: richer pickings,1.35,2.5,1.5,,,,,,,,#FF4A5A,,
+FogBank,Rolling Fog Bank,Ambient,Fog,,8,50,,A FOG BANK ROLLS IN,The minimap is blind: the fog pays extra XP,,,1.3,,,,,,,,#AEB8C8,,
+CursedChest,The Cursed Chest,Site,,,10,70,3,A CURSED CHEST HAS SURFACED,Stand on it to break the seal. It will not go quietly,,,,,,,,Ghoul,14,Chest,#B47CFF,coffin_decorated,90
+WanderingReliquary,The Wandering Reliquary,Site,,,8,70,2.5,THE WANDERING RELIQUARY HAS SET DOWN,Reach it before it moves on: a blessing for the whole crew,,,,,,,,,0,Boost:DamageMult:0.15:90+Gold:40,#6FD3FF,shrine_candles,170
+TollingTotem,The Tolling Totem,Site,Toll,,8,75,4,A TOTEM IS TOLLING THE DEAD AWAKE,The horde swells until someone breaks it,1.5,,,,,,,,0,XP:60+Gold:50,#FF7A3A,pillar,160
+TrappedSpirit,The Trapped Spirit,Site,,,8,70,3.5,A SPIRIT IS TRAPPED NEARBY,Free it and it fights beside you for a while,,,,,,,,,0,Ally:60,#9AF0FF,gravestone,140
+KingTide,King Tide,Ambient,KingTide,DrownedHarbour,14,45,,KING TIDE: THE HARBOUR IS GOING UNDER,Get to high ground. Drowned things drop more,,,,1.5,1.5,,,,,,#4AA8FF,,
+ClockRush,The Clock Runs Fast,Ambient,ClockFast,Clocktower,10,40,,THE CLOCK IS RUNNING FAST,The hands sweep at double speed: jump them,,,1.3,,,,,,,,#E8C45A,,
+ClockBackwards,The Clock Runs Backwards,Ambient,ClockReverse,Clocktower,10,40,,THE CLOCK IS RUNNING BACKWARDS,The hands come round the other way,,,1.3,,,,,,,,#C9A0FF,,
+CondGilded,Gilded Ground,Condition,,,10,,,,Gold dropped here is worth more,,,,,1.6,,,,,,#FFD36B,,
+CondHallowed,Hallowed Ground,Condition,,,10,,,,XP dropped here is worth more,,,1.3,,,,,,,,#7CFF9A,,
+CondSoulThick,Soul-Thick Ground,Condition,,,10,,,,Kills here shed more souls,,,,1.4,,,,,,,#5CF2D6,,

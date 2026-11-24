@@ -75,6 +75,8 @@ public:
 	UFUNCTION(Server, Reliable) void ServerReady();
 	/** End screen (host only): bRetry = same reapers and mission again right now; otherwise back to the lobby */
 	UFUNCTION(Server, Reliable) void ServerEndChoice(bool bRetry);
+	/** The Long Haunt: the host's answer after a boss (true = KEEP REAPING). Ignored from anyone but the host. */
+	UFUNCTION(Server, Reliable) void ServerLoopChoice(bool bKeepGoing);
 	/** True for the player who may press RETRY / CHANGE REAPER on the end screen (the host, or a solo player) */
 	bool CanChooseAfterRun() const;
 	UFUNCTION(Server, Reliable) void ServerPickReaper(int32 Index);

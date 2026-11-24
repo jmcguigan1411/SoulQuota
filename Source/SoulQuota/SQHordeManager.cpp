@@ -584,7 +584,7 @@ int32 ASQHordeManager::PickEnemyType(int32 Night, float Progress) const
 	// Management Visit clause: elites weigh EliteMult x more
 	const UWorld* PickWorld = GetWorld();
 	const ASQGameState* PickGS = PickWorld ? PickWorld->GetGameState<ASQGameState>() : nullptr;
-	const float EliteMult = PickGS ? FMath::Max(0.f, PickGS->ModProduct(&FSQModifierDef::EliteMult)) : 1.f;
+	const float EliteMult = PickGS ? FMath::Max(0.f, PickGS->ModProduct(&FSQModifierDef::EliteMult) * PickGS->EventMult(&FSQEventDef::EliteMult)) : 1.f;
 	auto TypeWeight = [Col, EliteMult](const FSQEnemyDef& Each) { return Each.Weight[Col] * (Each.Behaviour == ESQEnemyBehaviour::Elite ? EliteMult : 1.f); };
 	float Total = 0.f;
 	for (const FSQEnemyDef& E : D->Enemies)
@@ -609,6 +609,8 @@ void ASQHordeManager::SimSpawning(float DeltaSeconds, const TArray<ASQCharacter*
 	const USQData* D = USQData::Get(this);
 	if (!GS || !D || Players.Num() == 0) return;
 	if (GS->Phase != ESQPhase::Night && GS->Phase != ESQPhase::Boss) return;
+	// The Long Haunt: nothing spawns while the host decides between cashing out and another loop
+	if (GS->LoopChoiceTimeLeft > 0.f) return;
 
 	// Solo Training Shift (UI agent's tutorial): the horde holds back until the Reap tip is done; a few slow ones wait near the reaper
 	if (GS->Phase == ESQPhase::Night && USQTutorial::ShouldHoldSpawns(this))
@@ -624,6 +626,8 @@ void ASQHordeManager::SimSpawning(float DeltaSeconds, const TArray<ASQCharacter*
 	if (GS->Phase == ESQPhase::Boss) Rate *= D->Tune(TEXT("BossSpawnRateMult"), 0.35f);
 	// Economy pass: Difficulty and the Double Booking clause raise the horde; the Final Swarm adds its tiers on top
 	Rate *= (1.f + FMath::Max(0.f, GS->Difficulty)) * GS->ModProduct(&FSQModifierDef::SpawnMult);
+	// Run events (Blood Moon, the Tolling Totem): the on-screen cap below still bounds the horde
+	Rate *= GS->EventMult(&FSQEventDef::SpawnMult);
 	if (GS->bFinalSwarm) SimFinalSwarm(DeltaSeconds, GS, D);
 
 	// The regular loop also respects the on-screen cap curve (30 at minute 1, rising); swarms, nests and summons don't (HardCap only)
@@ -1824,18 +1828,22 @@ void ASQHordeManager::KillEnemy(int32 Index, ASQCharacter* By)
 			PendingSpawns.Add(Spawn);
 		}
 	}
-	if (Souls > 0) DropSouls(E.Pos, Souls);
-	if (Def.XP > 0) DropXP(E.Pos, Def.XP);
-
 	// ---- Economy pass: gold, crowned / miniboss chests, quest stats
 	ASQGameState* KillGS = GetWorld()->GetGameState<ASQGameState>();
+	// Run events and district conditions (content item 12) scale what a kill sheds; souls a Wisp stole are never multiplied
+	const float EventSoulMult = KillGS ? KillGS->DropMult(E.Pos, &FSQEventDef::SoulMult) : 1.f;
+	const float EventXPMult = KillGS ? KillGS->DropMult(E.Pos, &FSQEventDef::XPMult) : 1.f;
+	if (EventSoulMult != 1.f) Souls = E.Stolen + FMath::RoundToInt(static_cast<float>(FMath::Max(0, Souls - E.Stolen)) * EventSoulMult);
+	if (Souls > 0) DropSouls(E.Pos, Souls);
+	if (Def.XP > 0) DropXP(E.Pos, FMath::Max(1, FMath::RoundToInt(static_cast<float>(Def.XP) * EventXPMult)));
+
 	const bool bElite = Def.Behaviour == ESQEnemyBehaviour::Elite;
 	const bool bCrowned = (E.EcoFlags & EcoCrowned) != 0;
 	const bool bMiniboss = (E.EcoFlags & EcoMiniboss) != 0;
 	const FVector2D DeathPos = E.Pos;
 	if (KillGS)
 	{
-		const float GoldScale = KillGS->GoldMultiplier() * KillGS->GoldNightGrowth();
+		const float GoldScale = KillGS->GoldMultiplier() * KillGS->GoldNightGrowth() * KillGS->DropMult(DeathPos, &FSQEventDef::GoldMult);
 		if (bMiniboss)
 		{
 			// Every reaper gets the miniboss's purse; a FreeChest beat drops one free chest per reaper
@@ -5175,4 +5183,20 @@ void ASQHordeManager::DrawCollisionDebug()
 		DrawDebugCircle(World, At, ReaperBodyRadius(Reaper, D), 24, FColor::Yellow, false, -1.f, 0, 3.f, FVector(1.f, 0.f, 0.f), FVector(0.f, 1.f, 0.f), false);
 	}
 #endif
+}
+
+// ---- Run events (content item 12): the game mode follows a Hunt through the horde's one tracked miniboss
+
+bool ASQHordeManager::GetMinibossPos(FVector2D& Out) const
+{
+	if (MinibossId == 0) return false;
+	for (const FEnemy& Each : Enemies)
+	{
+		if (Each.Id == MinibossId)
+		{
+			Out = Each.Pos;
+			return true;
+		}
+	}
+	return false;
 }

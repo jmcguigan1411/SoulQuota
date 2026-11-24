@@ -11,6 +11,7 @@ class ASQCharacter;
 class ASQPlayerState;
 class ASQGameState;
 class USQData;
+struct FSQEventDef;
 
 /**
  * Server-only run director (Nov 9 2026 mission-based missions). A run is ONE mission (Missions.csv; the host picks it in the menu or with
@@ -50,10 +51,16 @@ public:
 	void RetryRun();
 	/** End screen, host only: back to the lobby now (change reaper / mission) */
 	void EndToLobby();
+	/** The Long Haunt: the host's answer after a boss (true = KEEP REAPING, false = CASH OUT). Server. */
+	void HandleLoopChoice(bool bKeepGoing);
 	/** Lobby, host (B): the next unlocked mission (kept as the pending mission in the host's profile) */
 	void CycleBiome();
 	/** Lobby, host (O): Hard mode on / off (only once the mission is beaten) */
 	void ToggleEndless();
+	/** Lobby (host): the Daily Haunt on / off (content item 12): today's seed for the map, events and conditions */
+	void ToggleDaily();
+	/** The Daily Haunt's seed for today (same on every machine with the same local date) */
+	static int32 DailySeed();
 
 	/** The live mission's objectives / minibosses (USQAugments::OnKill / OnHit forward horde events here) */
 	FSQMissionDirector& GetDirector() { return Director; }
@@ -100,6 +107,14 @@ protected:
 	 */
 	void UpdatePickPause(ASQGameState* GS, const USQData* D, float DeltaSeconds);
 
+	// ---- The Long Haunt (Nov 24 2026): optional loops after the mission boss. Docs/Content.md.
+	/** The boss fell and loops are on: lock what was earned, clear the field and ask the host */
+	void BeginLoopChoice();
+	/** KEEP REAPING: a new stage on the same map (new lantern route, stronger horde, the boss returns with a twist) */
+	void StartLoop();
+	/** True once the mission boss has fallen this run: from then on the run counts as won however it ends */
+	bool bLoopVictoryLocked = false;
+
 	float WaitTimer = 3.f;
 	/** RetryRun: the next start keeps bSkipLobby even with several humans */
 	bool bRetryStart = false;
@@ -131,6 +146,24 @@ protected:
 	FSQMissionDirector Director;
 	/** Timeline.csv rows already fired this act (Miniboss / Swarm) or announced (FinalSwarm tiers) */
 	TArray<bool> BeatsFired;
+
+	// ---- Run events (content item 12; Events.csv, Docs/Content.md). Server only.
+	/** Stage progress (0..1) at which each of this stage's events starts, ascending */
+	TArray<float> EventTimes;
+	int32 EventsStarted = 0;
+	/** Events already used this run (no repeats until the list is exhausted) */
+	TArray<FName> EventsUsed;
+	float EventHold = 0.f;
+	float EventPosTimer = 0.f;
+	float EventRetryTimer = 0.f;
+	bool bEventHadMiniboss = false;
+	TWeakObjectPtr<class ASQEventSite> EventSite;
+	void PlanEvents(ASQGameState* GS, const USQData* D, bool bNewRun);
+	void TickEvents(ASQGameState* GS, const USQData* D, float DeltaSeconds);
+	bool StartEvent(ASQGameState* GS, const USQData* D, const FSQEventDef& Def);
+	void EndEvent(ASQGameState* GS, const USQData* D, bool bDone, bool bQuiet);
+	void GrantEventReward(ASQGameState* GS, const USQData* D, const FSQEventDef& Def, const FVector& At);
+	void SetClockRate(ASQGameState* GS, float NewRate);
 	float QuestFlushTimer = 0.f;
 	/** World time the boss rose (quest: fast boss kills; stats) and the run began (quest: fast win) */
 	float BossFightStart = 0.f;

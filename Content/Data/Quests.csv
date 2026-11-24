@@ -107,3 +107,77 @@ HardWin1,Hard Bargain,Challenge,Win a mission on Hard.,HardWins,1,Total,Coins:50
 Meta10,Investing in Yourself,Economy,Buy 10 permanent upgrades in Death's Office.,MetaRanks,10,Total,Coins:200
 Meta60,Fully Vested,Economy,Buy 60 permanent upgrades in Death's Office.,MetaRanks,60,Total,Coins:2500
 GoldBank50k,Rainy Day Fund,Economy,"Bank 50,000 gold.",GoldBanked,50000,Total,Coins:1000
+Haunt1,Once More Round,Challenge,Clear a haunt: beat the boss again after choosing KEEP REAPING.,LoopsCleared,1,Total,Coins:150
+Haunt3,Third Time Round,Challenge,Clear 3 haunts in one run.,LoopsCleared,3,Best,Coins:400
+Haunt5,Long Haunt,Challenge,Clear 5 haunts in one run.,LoopsCleared,5,Best,Coins:900
+Haunt25,Repeat Business,Challenge,Clear 25 haunts in total.,LoopsCleared,25,Total,Coins:600
+# --- Content pass (Nov 24 2026, Docs/Content.md item 11): mid-ladder milestones so something lands every ~20 min, first-time milestones, trail colours
+Reaped15000,Warming Up,Combat,"Reap 15,000 enemies.",Kills,15000,Total,Coins:60
+Reaped30000,Thinning the Herd,Combat,"Reap 30,000 enemies.",Kills,30000,Total,Cosmetic:TrailMoss
+Reaped80000,Standing Room Only,Combat,"Reap 80,000 enemies.",Kills,80000,Total,Coins:120
+Reaped110000,Field of Stones,Combat,"Reap 110,000 enemies.",Kills,110000,Total,Cosmetic:TrailEmber
+Reaped250000,Quarter Million Souls,Combat,"Reap 250,000 enemies.",Kills,250000,Total,Coins:300
+Reaped400000,The Quiet After,Combat,"Reap 400,000 enemies.",Kills,400000,Total,Coins:400
+Objs25,Job Sheet,Progress,Complete 25 objectives.,ObjectivesDone,25,Total,Coins:60
+Objs75,Reliable Hands,Progress,Complete 75 objectives.,ObjectivesDone,75,Total,Coins:90
+Objs100,Hundred Jobs,Progress,Complete 100 objectives.,ObjectivesDone,100,Total,Cosmetic:TrailBrass
+Objs125,Old Hand,Progress,Complete 125 objectives.,ObjectivesDone,125,Total,Coins:120
+Objs200,Never Idle,Progress,Complete 200 objectives.,ObjectivesDone,200,Total,Coins:200
+Objs300,Fixture of the Yard,Progress,Complete 300 objectives.,ObjectivesDone,300,Total,Coins:300
+Wins3,Getting the Knack,Progress,Win 3 missions.,RunsWon,3,Total,Coins:60
+Wins5,On a Roll,Progress,Win 5 missions.,RunsWon,5,Total,Cosmetic:TrailWisp
+Wins15,Regular Caller,Progress,Win 15 missions.,RunsWon,15,Total,Coins:100
+Wins20,Twenty Bells,Progress,Win 20 missions.,RunsWon,20,Total,Cosmetic:TrailWitchfire
+Wins25,Death's Favourite,Progress,Win 25 missions.,RunsWon,25,Total,Coins:140
+Wins30,Thirty Bells,Progress,Win 30 missions.,RunsWon,30,Total,Coins:160
+Chests100,Lid Lifter,Economy,Open 100 chests.,ChestsOpened,100,Total,Coins:60
+Chests300,Hinge Breaker,Economy,Open 300 chests.,ChestsOpened,300,Total,Coins:90
+Chests400,Coffer Emptier,Economy,Open 400 chests.,ChestsOpened,400,Total,Coins:110
+Chests500,Nothing Left Locked,Economy,Open 500 chests.,ChestsOpened,500,Total,Cosmetic:TrailGilt
+Augs50,Tinkerer,Combat,Take 50 augments.,AugmentsTaken,50,Total,Coins:60
+Augs150,Fully Fitted,Combat,Take 150 augments.,AugmentsTaken,150,Total,Coins:90
+Augs200,Walking Workshop,Combat,Take 200 augments.,AugmentsTaken,200,Total,Cosmetic:TrailFrost
+Augs250,Too Many Ideas,Combat,Take 250 augments.,AugmentsTaken,250,Total,Coins:120
+Bosses8,Eight Appointments,Boss,Beat 8 bosses.,BossKills,8,Total,Coins:80
+Bosses12,Dozen Down,Boss,Beat 12 bosses.,BossKills,12,Total,Coins:100
+Bosses22,Bell Breaker,Boss,Beat 22 bosses.,BossKills,22,Total,Cosmetic:TrailMoon
+Bosses28,Feared Downstairs,Boss,Beat 28 bosses.,BossKills,28,Total,Coins:140
+Banked6000,Nest Egg,Economy,"Bank 6,000 gold.",GoldBanked,6000,Total,Coins:60
+Banked12000,Strongbox,Economy,"Bank 12,000 gold.",GoldBanked,12000,Total,Coins:90
+Banked20000,Vault Door,Economy,"Bank 20,000 gold.",GoldBanked,20000,Total,Cosmetic:TrailBone
+Banked27000,Deep Pockets,Economy,"Bank 27,000 gold.",GoldBanked,27000,Total,Coins:120
+Banked34000,Death's Creditor,Economy,"Bank 34,000 gold.",GoldBanked,34000,Total,Coins:150
+Minis25,Bruiser Bouncer,Boss,Beat 25 minibosses.,MinibossKills,25,Total,Coins:60
+Minis45,Big Game,Boss,Beat 45 minibosses.,MinibossKills,45,Total,Coins:80
+Minis65,Giant Feller,Boss,Beat 65 minibosses.,MinibossKills,65,Total,Coins:100
+Minis85,Nothing Too Big,Boss,Beat 85 minibosses.,MinibossKills,85,Total,Coins:120
+Minis100,Hundred Heavies,Boss,Beat 100 minibosses.,MinibossKills,100,Total,Cosmetic:TrailPumpkin
+Lanterns40,Lamplighter,Progress,Fill 40 lanterns on the trail.,Obj_BankSouls,40,Total,Coins:60
+Lanterns80,Keeper of the Trail,Progress,Fill 80 lanterns on the trail.,Obj_BankSouls,80,Total,Cosmetic:TrailTide
+Lanterns100,Hundred Lights,Progress,Fill 100 lanterns on the trail.,Obj_BankSouls,100,Total,Coins:100
+Lanterns130,Never Dark,Progress,Fill 130 lanterns on the trail.,Obj_BankSouls,130,Total,Coins:120
+Lanterns250,The Whole Road Lit,Progress,Fill 250 lanterns on the trail.,Obj_BankSouls,250,Total,Coins:250
+Elites100,Picking on the Big Ones,Combat,Reap 100 elites.,EliteKills,100,Total,Coins:60
+Elites300,Elite Eater,Combat,Reap 300 elites.,EliteKills,300,Total,Coins:90
+Elites800,Crown Collector,Combat,Reap 800 elites.,EliteKills,800,Total,Coins:130
+Events1,Something in the Night,Challenge,Answer 1 random events.,EventsDone,1,Total,Coins:60
+Events10,Never a Dull Night,Challenge,Answer 10 random events.,EventsDone,10,Total,Coins:70
+Events30,Trouble Finder,Challenge,Answer 30 random events.,EventsDone,30,Total,Cosmetic:TrailRose
+Events55,Welcomes Trouble,Challenge,Answer 55 random events.,EventsDone,55,Total,Coins:110
+Events75,Storm Chaser,Challenge,Answer 75 random events.,EventsDone,75,Total,Coins:130
+Earned30000,Jingling,Economy,"Pick up 30,000 gold in missions.",GoldEarned,30000,Total,Coins:60
+Earned60000,Heavy Purse,Economy,"Pick up 60,000 gold in missions.",GoldEarned,60000,Total,Coins:90
+Earned130000,Coin Tide,Economy,"Pick up 130,000 gold in missions.",GoldEarned,130000,Total,Coins:130
+Runs2,Back for More,Progress,Play 2 missions (win or lose).,RunsPlayed,2,Total,Coins:40
+Runs4,Finding Your Feet,Progress,Play 4 missions (win or lose).,RunsPlayed,4,Total,Coins:40
+Runs6,Settling In,Progress,Play 6 missions (win or lose).,RunsPlayed,6,Total,Coins:50
+Runs8,Knows the Way,Progress,Play 8 missions (win or lose).,RunsPlayed,8,Total,Coins:50
+Runs10,Showing Up,Progress,Play 10 missions (win or lose).,RunsPlayed,10,Total,Coins:60
+Runs25,Part of the Furniture,Progress,Play 25 missions (win or lose).,RunsPlayed,25,Total,Coins:90
+Runs40,Still Here,Progress,Play 40 missions (win or lose).,RunsPlayed,40,Total,Coins:110
+Runs50,Fifty Outings,Progress,Play 50 missions (win or lose).,RunsPlayed,50,Total,Coins:130
+CoopFirst,Many Hands,Challenge,Finish a mission with at least one other player.,CoopRuns,1,Total,Coins:150
+ComboFirst,Better Together,Challenge,Land a squad combo with a teammate.,SquadCombos,1,Total,Coins:100
+HauntFirst,One More Lap,Challenge,Choose KEEP REAPING after a boss.,LoopsBegun,1,Total,Coins:100
+Daily1,Today's Special,Challenge,Finish a Daily Haunt.,DailyRuns,1,Total,Coins:80
+Daily7,Regular Haunt,Challenge,Finish 7 Daily Haunts.,DailyRuns,7,Total,Coins:200

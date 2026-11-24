@@ -14,9 +14,19 @@ class USQData;
 
 enum class ESQQuestMode : uint8 { Total, Best };
 
+/** Content pass (Nov 24 2026): Cosmetics.csv. Purely visual, local to the owner's screen, earned from quests (never bought). */
+struct FSQCosmeticDef
+{
+	FName Id;
+	/** Trail = the colour of YOUR lantern trail marker and guide line on the minimap */
+	FName Kind;
+	FString Name;
+	FLinearColor Color = FLinearColor::White;
+};
+
 struct FSQQuestReward
 {
-	FName Type;        // Coins | Reaper | Item
+	FName Type;        // Coins | Reaper | Item | Cosmetic
 	FName Id;          // Reapers.csv / Upgrades.csv id (none for coins)
 	int32 Amount = 0;  // coins
 };
@@ -50,6 +60,39 @@ struct FSQModifierDef
 	float HoldXP = 0.f;
 	bool bCrownAll = false;
 	bool bNoHealing = false;
+	/** Content item 12: the clause is offered once the host's lifetime QuestTotal(UnlockStat) >= UnlockTarget (none = always) */
+	FName UnlockStat;
+	int32 UnlockTarget = 0;
+};
+
+/** Events.csv row (content item 12): a seeded random run event or a district condition. Docs/Content.md. */
+enum class ESQEventKind : uint8 { Ambient, Hunt, Site, Condition };
+enum class ESQEventSpecial : uint8 { None, Fog, KingTide, ClockFast, ClockReverse, Toll };
+struct FSQEventDef
+{
+	FName Id;
+	FString Name;
+	ESQEventKind Kind = ESQEventKind::Ambient;
+	ESQEventSpecial Special = ESQEventSpecial::None;
+	FName Biome;
+	float Weight = 1.f;
+	float Seconds = 45.f;
+	float Hold = 3.f;
+	FString Banner;
+	FString Hint;
+	float SpawnMult = 1.f;
+	float EliteMult = 1.f;
+	float XPMult = 1.f;
+	float SoulMult = 1.f;
+	float GoldMult = 1.f;
+	FName Enemy;
+	float HealthMult = 1.f;
+	FName Escort;
+	int32 Count = 0;
+	FString Reward;
+	FLinearColor Color = FLinearColor::White;
+	FName Model;
+	float Height = 140.f;
 };
 
 enum class ESQBeatKind : uint8 { Miniboss, Swarm, FinalSwarm };
@@ -84,6 +127,18 @@ namespace SQQuests
 	SOULQUOTA_API const TArray<FSQModifierDef>& Modifiers();
 	SOULQUOTA_API const TArray<FSQTimelineBeat>& Timeline();
 	SOULQUOTA_API const FSQQuestDef* FindQuest(FName Id);
+	SOULQUOTA_API const TArray<FSQCosmeticDef>& Cosmetics();
+	SOULQUOTA_API const FSQCosmeticDef* FindCosmetic(FName Id);
+	SOULQUOTA_API const TArray<FSQEventDef>& Events();
+	SOULQUOTA_API const FSQEventDef* FindEvent(FName Id);
+	/** True when the host's save has earned this contract clause (Modifiers.csv Unlock) */
+	SOULQUOTA_API bool ModifierUnlocked(const FSQModifierDef& Mod, const USQSaveGame* Save);
+	/** The colour of the cosmetic this profile has equipped for Kind (owned ones only), else Default */
+	SOULQUOTA_API FLinearColor EquippedColor(const USQSaveGame* Save, FName Kind, const FLinearColor& Default);
+	/** Equips the next owned cosmetic of Kind (wraps round to "standard"). Returns its display name. */
+	SOULQUOTA_API FString CycleCosmetic(USQSaveGame* Save, FName Kind);
+	/** The unfinished quest closest to done (highest share of its target). False when everything is done. */
+	SOULQUOTA_API bool NearestGoal(const USQSaveGame* Save, const USQData* D, FString& OutName, FString& OutReward, float& OutFrac);
 	/** Re-reads Quests.csv / Modifiers.csv / Timeline.csv */
 	SOULQUOTA_API void Reload();
 	/** Problems found while loading (shown with the HUD's data errors) */

@@ -109,6 +109,10 @@ public:
 	void SpawnMiniboss(FName EnemyId, float HealthMult, float DamageMult, const FString& Name, bool bFreeChest);
 	/** Timeline swarm wave: Count x EnemyId (x team size, Difficulty and the clauses' SpawnMult) around the reapers */
 	void SpawnSwarm(FName EnemyId, int32 Count);
+	/** Run events: is a timeline / event miniboss alive, where is it, and withdraw its free-chest drop (the Hunt got away) */
+	bool HasMiniboss() const { return MinibossId != 0; }
+	bool GetMinibossPos(FVector2D& Out) const;
+	void ForfeitMinibossChest() { bMinibossChest = false; }
 	/** The boss fell: every XP gem, gold coin and soul on the map is collected (XP to the team, gold shared, souls to the office) */
 	void VacuumPickups();
 	/** Gold a reaper picked up (or a vacuum): shared purse in co-op (Tuning GoldShareCoop), else the finder keeps it */

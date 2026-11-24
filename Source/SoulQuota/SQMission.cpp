@@ -847,7 +847,7 @@ void FSQMissionDirector::BeginTrail()
 	GS->TrailQuota = 0;
 	const int32 Stages = FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("LanternStages"), 4.f)), 1, 8);
 	if (D->Tune(TEXT("LanternTrail"), 1.f) < 0.5f || !GS->Arena || !GS->Lantern) return;
-	GS->Arena->GetLanternTrail(Stages, GS->Arena->RunSeed, Trail.Sites, Trail.Names);
+	GS->Arena->GetLanternTrail(Stages, GS->Arena->RunSeed + TrailSeedSalt, Trail.Sites, Trail.Names);
 	if (Trail.Sites.Num() == 0) return;
 	Trail.bOn = true;
 	Trail.LastGSBanked = GS->Banked;

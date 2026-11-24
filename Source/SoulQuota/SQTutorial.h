@@ -39,6 +39,7 @@ enum class ESQTip : uint8
 {
 	LevelUpSolo, LevelUpCoop, Souls, Gold, Chest, Shrine, Pot, Bell, FinalSwarm, Skull, Ramp, Miniboss, Pinned,
 	Ghost, Ping, Combo, // co-op pass, Nov 23 2026
+	Event, // content item 12, Nov 24 2026
 	Count
 };
 

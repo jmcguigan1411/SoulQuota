@@ -140,6 +140,10 @@ public:
 	// ---------------- Mission end (server -> owning PC)
 	/** Gold this reaper earned this run (every AddGold, before spending): the banked share is worked out from it */
 	int32 RunGoldEarned = 0;
+	/** The Long Haunt (server only): RunGoldEarned at the last boss kill. Safe at the win share if the crew wipes in a later loop. */
+	int32 LoopLockedEarned = 0;
+	/** Owner's profile: best loop per map and per reaper (and the local leaderboard hook) */
+	UFUNCTION(Client, Reliable) void ClientLoopBest(FName MissionId, FName PlayedReaper, int32 Loops, bool bHard);
 	/** Banks GoldBanked into the profile (plus the first-clear bonus the profile has not had), marks the mission cleared, saves */
 	UFUNCTION(Client, Reliable) void ClientMissionEnd(FName MissionId, bool bHard, bool bWon, int32 GoldBanked, float StageSeconds);
 

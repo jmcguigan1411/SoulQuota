@@ -14,6 +14,8 @@ namespace SQQuestData
 	{
 		TArray<FSQQuestDef> Quests;
 		TArray<FSQModifierDef> Modifiers;
+		TArray<FSQCosmeticDef> Cosmetics;
+		TArray<FSQEventDef> Events;
 		TArray<FSQTimelineBeat> Timeline;
 		TSet<FName> QuestItems;
 		FString Errors;
@@ -93,6 +95,71 @@ namespace SQQuestData
 	{
 		Tables.Quests.Reset();
 		Tables.Modifiers.Reset();
+		Tables.Cosmetics.Reset();
+		{
+			// Cosmetics.csv is optional: a missing file just means no cosmetic rewards
+			TArray<TMap<FString, FString>> CosRows;
+			FString CosErrors;
+			if (SQQuestReadCsv(TEXT("Cosmetics.csv"), CosRows, CosErrors))
+			{
+				for (const TMap<FString, FString>& CosRow : CosRows)
+				{
+					FSQCosmeticDef Cos;
+					Cos.Id = FName(*SQQuestCell(CosRow, TEXT("Id")));
+					if (Cos.Id.IsNone()) continue;
+					Cos.Kind = FName(*SQQuestCell(CosRow, TEXT("Kind")));
+					Cos.Name = SQQuestCell(CosRow, TEXT("Name"));
+					FString HexText = SQQuestCell(CosRow, TEXT("Color"));
+					HexText.RemoveFromStart(TEXT("#"));
+					if (HexText.Len() == 6) Cos.Color = FLinearColor::FromSRGBColor(FColor::FromHex(HexText));
+					Tables.Cosmetics.Add(Cos);
+				}
+			}
+		}
+		Tables.Events.Reset();
+		{
+			// Events.csv is optional: a missing file just means no run events or district conditions
+			TArray<TMap<FString, FString>> EventRows;
+			FString EventErrors;
+			if (SQQuestReadCsv(TEXT("Events.csv"), EventRows, EventErrors))
+			{
+				for (const TMap<FString, FString>& EventRow : EventRows)
+				{
+					FSQEventDef Ev;
+					Ev.Id = FName(*SQQuestCell(EventRow, TEXT("Id")));
+					if (Ev.Id.IsNone()) continue;
+					Ev.Name = SQQuestCell(EventRow, TEXT("Name"));
+					const FString KindText = SQQuestCell(EventRow, TEXT("Kind"));
+					Ev.Kind = KindText == TEXT("Hunt") ? ESQEventKind::Hunt : (KindText == TEXT("Site") ? ESQEventKind::Site : (KindText == TEXT("Condition") ? ESQEventKind::Condition : ESQEventKind::Ambient));
+					const FString SpecialText = SQQuestCell(EventRow, TEXT("Special"));
+					Ev.Special = SpecialText == TEXT("Fog") ? ESQEventSpecial::Fog : (SpecialText == TEXT("KingTide") ? ESQEventSpecial::KingTide
+						: (SpecialText == TEXT("ClockFast") ? ESQEventSpecial::ClockFast : (SpecialText == TEXT("ClockReverse") ? ESQEventSpecial::ClockReverse
+						: (SpecialText == TEXT("Toll") ? ESQEventSpecial::Toll : ESQEventSpecial::None))));
+					Ev.Biome = FName(*SQQuestCell(EventRow, TEXT("Biome")));
+					Ev.Weight = FMath::Max(0.f, SQQuestNum(EventRow, TEXT("Weight"), 1.f));
+					Ev.Seconds = FMath::Clamp(SQQuestNum(EventRow, TEXT("Seconds"), 45.f), 5.f, 600.f);
+					Ev.Hold = FMath::Clamp(SQQuestNum(EventRow, TEXT("Hold"), 3.f), 0.2f, 60.f);
+					Ev.Banner = SQQuestCell(EventRow, TEXT("Banner"));
+					Ev.Hint = SQQuestCell(EventRow, TEXT("Hint"));
+					Ev.SpawnMult = FMath::Clamp(SQQuestNum(EventRow, TEXT("SpawnMult"), 1.f), 0.1f, 4.f);
+					Ev.EliteMult = FMath::Clamp(SQQuestNum(EventRow, TEXT("EliteMult"), 1.f), 0.f, 10.f);
+					Ev.XPMult = FMath::Clamp(SQQuestNum(EventRow, TEXT("XPMult"), 1.f), 0.1f, 5.f);
+					Ev.SoulMult = FMath::Clamp(SQQuestNum(EventRow, TEXT("SoulMult"), 1.f), 0.1f, 5.f);
+					Ev.GoldMult = FMath::Clamp(SQQuestNum(EventRow, TEXT("GoldMult"), 1.f), 0.1f, 5.f);
+					Ev.Enemy = FName(*SQQuestCell(EventRow, TEXT("Enemy")));
+					Ev.HealthMult = FMath::Clamp(SQQuestNum(EventRow, TEXT("HealthMult"), 1.f), 0.1f, 100.f);
+					Ev.Escort = FName(*SQQuestCell(EventRow, TEXT("Escort")));
+					Ev.Count = FMath::Clamp(FMath::RoundToInt(SQQuestNum(EventRow, TEXT("Count"), 0.f)), 0, 60);
+					Ev.Reward = SQQuestCell(EventRow, TEXT("Reward"));
+					FString EventHex = SQQuestCell(EventRow, TEXT("Color"));
+					EventHex.RemoveFromStart(TEXT("#"));
+					if (EventHex.Len() == 6) Ev.Color = FLinearColor::FromSRGBColor(FColor::FromHex(EventHex));
+					Ev.Model = FName(*SQQuestCell(EventRow, TEXT("Model")));
+					Ev.Height = FMath::Clamp(SQQuestNum(EventRow, TEXT("Height"), 140.f), 40.f, 400.f);
+					Tables.Events.Add(Ev);
+				}
+			}
+		}
 		Tables.Timeline.Reset();
 		Tables.QuestItems.Reset();
 		Tables.Errors.Reset();
@@ -122,7 +189,7 @@ namespace SQQuestData
 					Reward.Type = FName(*Kind.TrimStartAndEnd());
 					if (Reward.Type == TEXT("Coins")) Reward.Amount = FMath::Max(0, FCString::Atoi(*Value.TrimStartAndEnd()));
 					else Reward.Id = FName(*Value.TrimStartAndEnd());
-					if (Reward.Type != TEXT("Coins") && Reward.Type != TEXT("Reaper") && Reward.Type != TEXT("Item"))
+					if (Reward.Type != TEXT("Coins") && Reward.Type != TEXT("Reaper") && Reward.Type != TEXT("Item") && Reward.Type != TEXT("Cosmetic"))
 					{
 						Tables.Errors += FString::Printf(TEXT("Quest %s: unknown reward %s. "), *Quest.Id.ToString(), *Kind);
 						continue;
@@ -157,6 +224,14 @@ namespace SQQuestData
 				Mod.HoldXP = FMath::Clamp(SQQuestNum(Row, TEXT("HoldXP"), 0.f), 0.f, 0.95f);
 				Mod.bCrownAll = SQQuestNum(Row, TEXT("CrownAll"), 0.f) > 0.5f;
 				Mod.bNoHealing = SQQuestNum(Row, TEXT("NoHealing"), 0.f) > 0.5f;
+				{
+					FString UnlockStatText, UnlockTargetText;
+					if (SQQuestCell(Row, TEXT("Unlock")).Split(TEXT(":"), &UnlockStatText, &UnlockTargetText))
+					{
+						Mod.UnlockStat = FName(*UnlockStatText.TrimStartAndEnd());
+						Mod.UnlockTarget = FMath::Max(0, FCString::Atoi(*UnlockTargetText));
+					}
+				}
 				Tables.Modifiers.Add(Mod);
 			}
 		}
@@ -266,6 +341,79 @@ namespace SQQuests
 	const TArray<FSQQuestDef>& Quests() { return SQQuestData::SQQuestGet().Quests; }
 	const TArray<FSQModifierDef>& Modifiers() { return SQQuestData::SQQuestGet().Modifiers; }
 	const TArray<FSQTimelineBeat>& Timeline() { return SQQuestData::SQQuestGet().Timeline; }
+	const TArray<FSQCosmeticDef>& Cosmetics() { return SQQuestData::SQQuestGet().Cosmetics; }
+	const TArray<FSQEventDef>& Events() { return SQQuestData::SQQuestGet().Events; }
+	const FSQEventDef* FindEvent(FName Id)
+	{
+		if (Id.IsNone()) return nullptr;
+		for (const FSQEventDef& Ev : Events())
+		{
+			if (Ev.Id == Id) return &Ev;
+		}
+		return nullptr;
+	}
+	bool ModifierUnlocked(const FSQModifierDef& Mod, const USQSaveGame* Save)
+	{
+		if (Mod.UnlockStat.IsNone() || Mod.UnlockTarget <= 0) return true;
+		return Save && Save->QuestTotal(Mod.UnlockStat) >= Mod.UnlockTarget;
+	}
+	const FSQCosmeticDef* FindCosmetic(FName Id)
+	{
+		for (const FSQCosmeticDef& Cos : Cosmetics())
+		{
+			if (Cos.Id == Id) return &Cos;
+		}
+		return nullptr;
+	}
+
+	FLinearColor EquippedColor(const USQSaveGame* Save, FName Kind, const FLinearColor& Default)
+	{
+		if (!Save) return Default;
+		const FName* Equipped = Save->CosmeticsEquipped.Find(Kind);
+		if (!Equipped || Equipped->IsNone() || !Save->CosmeticsOwned.Contains(*Equipped)) return Default;
+		const FSQCosmeticDef* Cos = FindCosmetic(*Equipped);
+		return (Cos && Cos->Kind == Kind) ? Cos->Color : Default;
+	}
+
+	FString CycleCosmetic(USQSaveGame* Save, FName Kind)
+	{
+		if (!Save) return FString(TEXT("STANDARD"));
+		// The cycle: standard (none), then every owned cosmetic of this kind in file order
+		TArray<FName> Ring;
+		Ring.Add(NAME_None);
+		for (const FSQCosmeticDef& Cos : Cosmetics())
+		{
+			if (Cos.Kind == Kind && Save->CosmeticsOwned.Contains(Cos.Id)) Ring.Add(Cos.Id);
+		}
+		const FName* Current = Save->CosmeticsEquipped.Find(Kind);
+		const int32 At = FMath::Max(0, Ring.IndexOfByKey(Current ? *Current : NAME_None));
+		const FName Next = Ring[(At + 1) % Ring.Num()];
+		Save->CosmeticsEquipped.Add(Kind, Next);
+		const FSQCosmeticDef* NextDef = Next.IsNone() ? nullptr : FindCosmetic(Next);
+		return NextDef ? NextDef->Name.ToUpper() : FString(TEXT("STANDARD"));
+	}
+
+	bool NearestGoal(const USQSaveGame* Save, const USQData* D, FString& OutName, FString& OutReward, float& OutFrac)
+	{
+		if (!Save) return false;
+		const FSQQuestDef* Best = nullptr;
+		float BestFrac = -1.f;
+		for (const FSQQuestDef& Quest : Quests())
+		{
+			if (Save->HasQuest(Quest.Id)) continue;
+			const float Frac = static_cast<float>(Progress(Quest, Save, nullptr)) / static_cast<float>(FMath::Max(1, Quest.Target));
+			if (Frac > BestFrac)
+			{
+				BestFrac = Frac;
+				Best = &Quest;
+			}
+		}
+		if (!Best) return false;
+		OutName = Best->Name;
+		OutReward = DescribeRewards(*Best, D);
+		OutFrac = FMath::Clamp(BestFrac, 0.f, 1.f);
+		return true;
+	}
 	const FString& LoadErrors()
 	{
 		// Missions.csv / MetaUpgrades.csv / Augments.csv problems ride along with the quest tables' (HUD data errors)
@@ -338,6 +486,10 @@ namespace SQQuests
 					{
 						Save->UnlockedItems.AddUnique(Reward.Id);
 					}
+					else if (Reward.Type == TEXT("Cosmetic"))
+					{
+						Save->CosmeticsOwned.AddUnique(Reward.Id);
+					}
 				}
 				OutDone.Add(&Quest);
 				bAny = true;
@@ -360,6 +512,11 @@ namespace SQQuests
 			{
 				const FSQReaperDef* ReaperDef = D ? D->FindReaper(Reward.Id) : nullptr;
 				Part = FString::Printf(TEXT("hires %s"), ReaperDef ? *ReaperDef->Name : *Reward.Id.ToString());
+			}
+			else if (Reward.Type == TEXT("Cosmetic"))
+			{
+				const FSQCosmeticDef* CosDef = FindCosmetic(Reward.Id);
+				Part = FString::Printf(TEXT("%s (lantern trail colour)"), CosDef && !CosDef->Name.IsEmpty() ? *CosDef->Name : *Reward.Id.ToString());
 			}
 			else
 			{

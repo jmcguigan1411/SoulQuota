@@ -45,4 +45,10 @@ namespace SQSession
 	bool TakeConnectString(FString& Out);
 	/** Steam overlay "Join game" / accepted invites end up in TakeConnectString too. Harmless on Null. */
 	void ListenForInvites(UWorld* World);
+
+	/**
+	 * Content pass (Nov 24 2026): leaderboard hook. Boards are named "Haunt_<MissionId>[_Hard]" and "Daily_<yyyymmdd>".
+	 * On the Null service this only logs (bests live in the profile); with Steam it becomes a leaderboard write (Docs/Steam.md).
+	 */
+	void SubmitScore(const UObject* WorldContext, FName Board, int32 Score);
 }

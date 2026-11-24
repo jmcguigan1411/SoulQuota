@@ -9,6 +9,7 @@
 #include "SQQuests.h"
 #include "SQMission.h"
 #include "SQAugments.h"
+#include "SQSession.h"
 #include "GameFramework/PlayerController.h"
 
 void ASQPlayerState::BeginPlay()
@@ -332,6 +333,7 @@ void ASQPlayerState::ResetForRun()
 	PendingAugments = 0;
 	PendingAugmentSources.Reset();
 	RunGoldEarned = 0;
+	LoopLockedEarned = 0;
 	TrackLastHealth = -1.f;
 	TrackLastDashCd = 0.f;
 	TrackLastCarried = 0;
@@ -469,12 +471,82 @@ void ASQPlayerState::ClientMissionEnd_Implementation(FName MissionId, bool bHard
 		float& Best = Save->MissionBestSeconds.FindOrAdd(MissionId);
 		if (Best <= 0.f || StageSeconds < Best) Best = FMath::Max(1.f, StageSeconds);
 	}
+	// Death's Ledger (content pass, Nov 24 2026): every finished run moves the rank on, win or lose, so no run pays nothing
+	if (const USQData* LedgerData = USQData::Get(this))
+	{
+		const int32 MaxRank = FMath::Clamp(FMath::RoundToInt(LedgerData->Tune(TEXT("LedgerMaxRank"), 300.f)), 0, 10000);
+		if (LedgerData->Tune(TEXT("LedgerRanks"), 1.f) >= 0.5f && Save->LedgerRank < MaxRank)
+		{
+			const int32 PerRank = FMath::Max(10, FMath::RoundToInt(LedgerData->Tune(TEXT("LedgerXPPerRank"), 100.f)));
+			const float Minutes = FMath::Clamp(StageSeconds / 60.f, 0.f, 120.f);
+			const int32 Gain = FMath::Max(FMath::RoundToInt(LedgerData->Tune(TEXT("LedgerMinXP"), 100.f)),
+				FMath::RoundToInt(Minutes * LedgerData->Tune(TEXT("LedgerXPPerMinute"), 10.f) + (bWon ? LedgerData->Tune(TEXT("LedgerXPWin"), 40.f) : 0.f)));
+			Save->LedgerXP = FMath::Clamp(Save->LedgerXP + FMath::Max(0, Gain), 0, 100000000);
+			int32 LedgerGold = 0;
+			const int32 FromRank = Save->LedgerRank;
+			while (Save->LedgerXP >= PerRank && Save->LedgerRank < MaxRank)
+			{
+				Save->LedgerXP -= PerRank;
+				++Save->LedgerRank;
+				LedgerGold += FMath::Max(0, FMath::RoundToInt(LedgerData->Tune(TEXT("LedgerGoldPerRank"), 25.f)));
+				if (Save->LedgerRank % 5 == 0) LedgerGold += FMath::Max(0, FMath::RoundToInt(LedgerData->Tune(TEXT("LedgerGoldEvery5"), 100.f)));
+			}
+			if (Save->LedgerRank > FromRank)
+			{
+				Banked += LedgerGold;
+				Sub += FString::Printf(TEXT("  Ledger rank %d (+%d gold)."), Save->LedgerRank, LedgerGold);
+			}
+		}
+	}
+	// Daily Haunt (content item 12): the first one finished each day pays a bonus; the record is local until Steam leaderboards exist
+	{
+		const ASQGameState* DailyGS = GetWorld() ? GetWorld()->GetGameState<ASQGameState>() : nullptr;
+		if (DailyGS && DailyGS->bDailyRun)
+		{
+			const int32 Today = ASQGameState::TodayKey();
+			Save->DailyRuns = FMath::Min(Save->DailyRuns + 1, 1000000);
+			if (Save->DailyLastKey != Today)
+			{
+				Save->DailyLastKey = Today;
+				Save->DailyBestKills = 0;
+				const USQData* DailyData = USQData::Get(this);
+				const int32 DailyGold = DailyData ? FMath::Clamp(FMath::RoundToInt(DailyData->Tune(TEXT("DailyGoldBonus"), 40.f)), 0, 100000) : 40;
+				Banked += DailyGold;
+				Sub += FString::Printf(TEXT("  Daily Haunt (+%d gold)."), DailyGold);
+			}
+			Save->DailyBestKills = FMath::Max(Save->DailyBestKills, Kills);
+		}
+	}
 	Save->OvertimePay = FMath::Clamp(Save->OvertimePay + Banked, 0, 100000000);
 	Save->LifetimePay = FMath::Clamp(Save->LifetimePay + Banked, 0, 100000000);
 	int32& BankedTotal = Save->QuestTotals.FindOrAdd(TEXT("GoldBanked"));
 	BankedTotal = static_cast<int32>(FMath::Min(static_cast<int64>(BankedTotal) + Banked, static_cast<int64>(2000000000)));
 	AddLocalToast(bWon ? FString(TEXT("MISSION COMPLETE")) : FString(TEXT("MISSION FAILED")), Sub, 3);
 	USQSaveGame::Store(Save);
+}
+
+void ASQPlayerState::ClientLoopBest_Implementation(FName MissionId, FName PlayedReaper, int32 Loops, bool bHard)
+{
+	USQSaveGame* Save = USQSaveGame::Load();
+	if (!Save || Loops <= 0 || MissionId.IsNone()) return;
+	const int32 Safe = FMath::Clamp(Loops, 1, 999);
+	int32& MapBest = Save->LoopBestByMission.FindOrAdd(MissionId);
+	const bool bNewBest = Safe > MapBest;
+	MapBest = FMath::Max(MapBest, Safe);
+	if (!PlayedReaper.IsNone())
+	{
+		int32& ReaperBest = Save->LoopBestByReaper.FindOrAdd(PlayedReaper);
+		ReaperBest = FMath::Max(ReaperBest, Safe);
+	}
+	if (bHard)
+	{
+		int32& HardBest = Save->LoopBestHard.FindOrAdd(MissionId);
+		HardBest = FMath::Max(HardBest, Safe);
+	}
+	USQSaveGame::Store(Save);
+	if (bNewBest) AddLocalToast(TEXT("NEW BEST HAUNT"), FString::Printf(TEXT("Haunt %d on this map"), Safe), 2);
+	// Leaderboards later: a no-op until a Steam app id is set (Docs/Steam.md)
+	SQSession::SubmitScore(this, FName(*FString::Printf(TEXT("Haunt_%s%s"), *MissionId.ToString(), bHard ? TEXT("_Hard") : TEXT(""))), Safe);
 }
 
 void ASQPlayerState::ServerUseNearby_Implementation()
@@ -493,6 +565,12 @@ void ASQPlayerState::ServerToggleModifier_Implementation(int32 Index)
 	if (!GS || !HostPC || !HostPC->IsLocalController() || GS->Phase != ESQPhase::Waiting) return;
 	const TArray<FSQModifierDef>& Mods = SQQuests::Modifiers();
 	if (!Mods.IsValidIndex(Index) || Index >= 31) return;
+	// Content item 12: clauses are earned through play (Modifiers.csv Unlock, the host's lifetime totals); switching one OFF is always allowed
+	if (!GS->HasModifier(Index) && !SQQuests::ModifierUnlocked(Mods[Index], USQSaveGame::Load()))
+	{
+		GS->PushAlert(FString::Printf(TEXT("%s is locked: %s %d."), *Mods[Index].Name, *Mods[Index].UnlockStat.ToString(), Mods[Index].UnlockTarget));
+		return;
+	}
 	GS->ModifierMask ^= (1 << Index);
 	const bool bOn = GS->HasModifier(Index);
 	GS->PushAlert(FString::Printf(TEXT("Contract clause %s: %s (banked gold x%.2f)"), bOn ? TEXT("ON") : TEXT("OFF"), *Mods[Index].Name, GS->CoinMultiplier()));

@@ -93,6 +93,23 @@ public:
 	UPROPERTY() TArray<FName> HardCleared;
 	/** Fastest win per mission (seconds; Hard wins count too) */
 	UPROPERTY() TMap<FName, float> MissionBestSeconds;
+	// ---- Content pass (Nov 24 2026, Docs/Content.md). ContentVersion 1 = these fields exist; older profiles load them empty.
+	UPROPERTY() int32 ContentVersion = 0;
+	/** The Long Haunt: most loops begun after the boss, per mission, per reaper, and per mission on Hard */
+	UPROPERTY() TMap<FName, int32> LoopBestByMission;
+	UPROPERTY() TMap<FName, int32> LoopBestByReaper;
+	UPROPERTY() TMap<FName, int32> LoopBestHard;
+	/** Death's Ledger: a rank for simply playing (time in missions + wins). Every rank pays a little banked gold; no stats. */
+	UPROPERTY() int32 LedgerXP = 0;
+	UPROPERTY() int32 LedgerRank = 0;
+	/** Daily Haunt (content item 12; ContentVersion 2): the local date (yyyymmdd) of the last daily finished, the best kills on that date, dailies played */
+	UPROPERTY() int32 DailyLastKey = 0;
+	UPROPERTY() int32 DailyBestKills = 0;
+	UPROPERTY() int32 DailyRuns = 0;
+	/** Cosmetics.csv ids earned from quests, and the one equipped per Kind (none = the standard look) */
+	UPROPERTY() TArray<FName> CosmeticsOwned;
+	UPROPERTY() TMap<FName, FName> CosmeticsEquipped;
+	int32 LoopBest(FName MissionId) const { const int32* Found = LoopBestByMission.Find(MissionId); return Found ? *Found : 0; }
 	/** The mission the next hosted run starts with (USQMissions::SetPendingMission from the menu; none = the first unlocked one) */
 	UPROPERTY() FName PendingMission;
 	UPROPERTY() bool bPendingHard = false;

@@ -319,6 +319,8 @@ void ASQPlayerController::UpdatePadButtons()
 		if (WasInputKeyJustPressed(EKeys::Gamepad_Special_Right)) OnReady();
 		if (WasInputKeyJustPressed(EKeys::Gamepad_LeftShoulder)) OnBiome();
 		if (WasInputKeyJustPressed(EKeys::Gamepad_Special_Left)) OnEndless();
+		// LS click = Daily Haunt (host, lobby only; the game mode ignores it elsewhere)
+		if (WasInputKeyJustPressed(EKeys::Gamepad_LeftThumbstick) && PadGS->Phase == ESQPhase::Waiting) ServerLobbyCommand(TEXT("Daily"));
 		if (WasInputKeyJustPressed(EKeys::Gamepad_RightThumbstick)) SetSettingsOpen(true);
 		return;
 	}
@@ -649,6 +651,7 @@ void ASQPlayerController::ServerLobbyCommand_Implementation(FName Command)
 	if (!GM) return;
 	if (Command == TEXT("Biome")) GM->CycleBiome();
 	else if (Command == TEXT("Endless")) GM->ToggleEndless();
+	else if (Command == TEXT("Daily")) GM->ToggleDaily();
 }
 
 void ASQPlayerController::ClientRunEnded_Implementation(FName BiomeId, bool bWonStory, int32 NightsCleared, int32 Kills, bool bEndless)
@@ -1029,6 +1032,12 @@ void ASQPlayerController::ServerEndChoice_Implementation(bool bRetry)
 	if (!GM) return;
 	if (bRetry) GM->RetryRun();
 	else GM->EndToLobby();
+}
+
+void ASQPlayerController::ServerLoopChoice_Implementation(bool bKeepGoing)
+{
+	if (!IsLocalController()) return;
+	if (ASQGameMode* GM = GetWorld() ? GetWorld()->GetAuthGameMode<ASQGameMode>() : nullptr) GM->HandleLoopChoice(bKeepGoing);
 }
 
 bool ASQPlayerController::CanChooseAfterRun() const

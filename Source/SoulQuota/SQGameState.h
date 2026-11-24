@@ -128,6 +128,56 @@ public:
 	static FLinearColor PingColor(uint8 Slot);
 	static const TCHAR* PingLabel(uint8 Kind);
 
+	// ---------------- The Long Haunt (Nov 24 2026, Docs/Content.md): optional loops after the mission boss
+	/** Loops begun after the first boss fell (0 = the mission itself). Each loop: new lantern route, stronger horde and boss. */
+	UPROPERTY(Replicated) int32 LoopIndex = 0;
+
+	// ---- Run events, district conditions, the Daily Haunt (content item 12, Docs/Content.md). Server writes (ASQGameMode::TickEvents).
+	/** Events.csv id of the running event (none = no event) */
+	UPROPERTY(Replicated) FName EventId;
+	/** Where the event is (its site, or the hunted creature); valid when bEventHasPos */
+	UPROPERTY(Replicated) FVector EventPos = FVector::ZeroVector;
+	UPROPERTY(Replicated) bool bEventHasPos = false;
+	/** Server world times the event started / runs out */
+	UPROPERTY(Replicated) float EventStartTime = 0.f;
+	UPROPERTY(Replicated) float EventEndTime = 0.f;
+	/** Site events: how far the hold has got, 0..100 */
+	UPROPERTY(Replicated) uint8 EventHoldPct = 0;
+	/** Events finished this run (HUD + end screen) */
+	UPROPERTY(Replicated) int32 EventsDone = 0;
+	/** Clocktower hands: angle time = ServerTime * ClockRate + ClockOffset (the offset keeps the hands continuous when the rate changes) */
+	UPROPERTY(Replicated) float ClockRate = 1.f;
+	UPROPERTY(Replicated) float ClockOffset = 0.f;
+	/** District conditions for this run: Events.csv Condition ids and the ASQArena district each sits on (parallel arrays) */
+	UPROPERTY(Replicated) TArray<FName> ConditionIds;
+	UPROPERTY(Replicated) TArray<int32> ConditionDistricts;
+	/** Daily Haunt: the run seed comes from today's date (same map, events and conditions for everyone that day; local record for now) */
+	UPROPERTY(Replicated) bool bDailyRun = false;
+
+	const FSQEventDef* ActiveEvent() const;
+	/** The running event's multiplier (1 with no event) */
+	float EventMult(float FSQEventDef::* Field) const;
+	/** Drop multiplier at a map position: the running event x the condition of the district the position is in */
+	float DropMult(const FVector2D& Pos, float FSQEventDef::* Field) const;
+	/** The condition on a district (null = none) */
+	const FSQEventDef* ConditionOn(int32 District) const;
+	bool IsEventSpecial(ESQEventSpecial Special) const;
+	/** Clocktower hand time (see ClockRate) */
+	float ClockTime() const { return GetServerWorldTimeSeconds() * ClockRate + ClockOffset; }
+	/** yyyymmdd of the local date: the Daily Haunt's seed and record key */
+	static int32 TodayKey();
+	void ClearEventState();
+	/** > 0 while the host (or solo player) chooses CASH OUT or KEEP REAPING after a boss; real seconds left (cash out at 0) */
+	UPROPERTY(Replicated) float LoopChoiceTimeLeft = 0.f;
+	/** Bonus banked gold already locked in by cleared loops (paid to every reaper who was there, win or wipe) */
+	UPROPERTY(Replicated) int32 LoopBonusGold = 0;
+	/** The current loop boss's twist, for the HUD ("ESCORTED", "SWARMED"...) */
+	UPROPERTY(Replicated) FString LoopBossMod;
+	/** Horde / boss health, enemy damage and elite weight multipliers of the current loop (1 on the mission itself) */
+	float LoopHealthMult() const;
+	float LoopDamageMult() const;
+	float LoopEliteMult() const;
+
 	/** True once every objective is resolved: the Appointment Bell is up (or the stage clock ran out) */
 	UPROPERTY(Replicated) bool bBossReady = false;
 

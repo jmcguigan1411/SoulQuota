@@ -870,9 +870,12 @@ void ASQHUD::DrawHUD()
 			DrawMinimap(GS, C, D, bShop);
 			DrawDistrictBanner(GS, C);
 			StackY = DrawTopCentre(GS, D) + 12.f;
+			if (GS->Phase == ESQPhase::Night && GS->LoopChoiceTimeLeft > 0.f) DrawLoopChoice(GS, D);
+			else { LoopChoiceShownAt = -1.f; bLoopChoiceSent = false; LoopHoldFor[0] = LoopHoldFor[1] = 0.f; }
 			if (GS->Phase == ESQPhase::Night || GS->Phase == ESQPhase::Boss)
 			{
 				StackY += DrawMinibossBar(GS, StackY);
+				StackY += DrawEventTracker(GS, StackY);
 			}
 		}
 
@@ -3374,6 +3377,15 @@ void ASQHUD::DrawBeatBanner(const ASQGameState* GS)
 	case 5: Title = TEXT("NEW OBJECTIVE"); Colour = SQUI::Gold; break;
 	case 6: Title = TEXT("OBJECTIVE COMPLETE"); Colour = SQUI::Soul; break;
 	case 7: Title = TEXT("OBJECTIVE FAILED"); Colour = SQUI::Stamp; break;
+	case 8:
+	{
+		// Run event (content item 12): the word EVENT in the event's own colour, its banner line underneath
+		const FSQEventDef* BeatEvent = GS->ActiveEvent();
+		Title = TEXT("EVENT");
+		Colour = BeatEvent ? BeatEvent->Color : SQUI::Amber;
+		break;
+	}
+	case 9: Title = TEXT("EVENT COMPLETE"); Colour = SQUI::Soul; break;
 	default: Title = TEXT("THE BELL IS READY"); Colour = SQUI::Soul; break;
 	}
 	const float In = HudBackOut(Age / 0.35f);
@@ -3451,8 +3463,10 @@ void ASQHUD::DrawClausePanel(const ASQGameState* GS, ASQPlayerState* PS, float X
 	if (Mods.Num() == 0) return;
 	const bool bHost = GetNetMode() != NM_Client;
 	const float W = 400.f, RowH = 28.f, HeadH = 58.f;
-	const float H = HeadH + Mods.Num() * RowH + 44.f;
+	// Content item 12: one extra row under the clauses for the Daily Haunt
+	const float H = HeadH + (Mods.Num() + 1) * RowH + 44.f;
 	if (Y + H > HudVH - 48.f - 12.f) return; // no room (tiny window): the host can still play without clauses
+	const USQSaveGame* ClauseSave = bHost ? USQSaveGame::Load() : nullptr;
 	const float Mult = GS->CoinMultiplier();
 	HudPanel(X, Y, W, H, 18.f, GS->ModifierMask != 0 ? SQUI::WithAlpha(SQUI::Amber, 0.7f) : SQUI::Line);
 	HudTxt(TEXT("CONTRACT CLAUSES"), HudHeadFont(), 18.f, X + 18.f, Y + 10.f, SQUI::BoneWhite);
@@ -3469,6 +3483,8 @@ void ASQHUD::DrawClausePanel(const ASQGameState* GS, ASQPlayerState* PS, float X
 		const float RY = Y + HeadH + ModIdx * RowH;
 		const bool bOn = GS->HasModifier(ModIdx);
 		const bool bOver = bMouse && MX >= X + 8.f && MX <= X + W - 8.f && MY >= RY && MY < RY + RowH;
+		// Locked clauses (host view; clients just see what the host switched on) are greyed with what earns them
+		const bool bLocked = bHost && !bOn && !SQQuests::ModifierUnlocked(Mod, ClauseSave);
 		if (bOver)
 		{
 			Hovered = ModIdx;
@@ -3476,14 +3492,45 @@ void ASQHUD::DrawClausePanel(const ASQGameState* GS, ASQPlayerState* PS, float X
 			if (bClick && PS)
 			{
 				PS->ServerToggleModifier(ModIdx);
-				Play(TEXT("Soul"), 0.3f, 0.f);
+				Play(TEXT("Soul"), bLocked ? 0.12f : 0.3f, 0.f);
 			}
 		}
 		// a checkbox
 		HudRound(bOn ? SQUI::Amber : SQUI::Line, X + 18.f, RY + 6.f, 16.f, 16.f, 4.f);
 		if (!bOn) HudRound(SQUI::Panel, X + 20.f, RY + 8.f, 12.f, 12.f, 3.f);
-		HudTxt(Mod.Name, HudLabelFont(true), 14.f, X + 44.f, RY + 5.f, bOn ? SQUI::BoneWhite : SQUI::Muted, 0, false);
-		HudTxt(FString::Printf(TEXT("+%d%%"), FMath::RoundToInt((Mod.CoinMult - 1.f) * 100.f)), HudLabelFont(true), 13.f, X + W - 18.f, RY + 6.f, bOn ? SQUI::Amber : SQUI::Disabled, 2, false);
+		HudTxt(Mod.Name, HudLabelFont(true), 14.f, X + 44.f, RY + 5.f, bOn ? SQUI::BoneWhite : (bLocked ? SQUI::Disabled : SQUI::Muted), 0, false);
+		if (bLocked)
+		{
+			const int32 Have = ClauseSave ? ClauseSave->QuestTotal(Mod.UnlockStat) : 0;
+			HudTxt(FString::Printf(TEXT("LOCKED %d/%d"), FMath::Min(Have, Mod.UnlockTarget), Mod.UnlockTarget), HudLabelFont(true), 12.f, X + W - 18.f, RY + 6.f, SQUI::Disabled, 2, false);
+		}
+		else
+		{
+			HudTxt(FString::Printf(TEXT("+%d%%"), FMath::RoundToInt((Mod.CoinMult - 1.f) * 100.f)), HudLabelFont(true), 13.f, X + W - 18.f, RY + 6.f, bOn ? SQUI::Amber : SQUI::Disabled, 2, false);
+		}
+	}
+	{
+		// The Daily Haunt row: today's seed for the map, events and district conditions (host: click, Y, or LS click on a pad)
+		const float DailyY = Y + HeadH + Mods.Num() * RowH;
+		const bool bDailyOver = bMouse && MX >= X + 8.f && MX <= X + W - 8.f && MY >= DailyY && MY < DailyY + RowH;
+		ASQPlayerController* DailyPC = Cast<ASQPlayerController>(PlayerOwner);
+		const bool bDailyKey = bHost && PlayerOwner && !SQInput::UsingPad() && PlayerOwner->WasInputKeyJustPressed(EKeys::Y);
+		if (bDailyOver) HudRound(SQUI::WithAlpha(SQUI::PanelHover, 0.9f), X + 8.f, DailyY, W - 16.f, RowH - 2.f, 8.f);
+		if (DailyPC && bHost && ((bDailyOver && bClick) || bDailyKey))
+		{
+			DailyPC->ServerLobbyCommand(TEXT("Daily"));
+			Play(TEXT("Soul"), 0.3f, 0.f);
+		}
+		HudRound(GS->bDailyRun ? SQUI::Soul : SQUI::Line, X + 18.f, DailyY + 6.f, 16.f, 16.f, 4.f);
+		if (!GS->bDailyRun) HudRound(SQUI::Panel, X + 20.f, DailyY + 8.f, 12.f, 12.f, 3.f);
+		HudTxt(TEXT("Daily Haunt"), HudLabelFont(true), 14.f, X + 44.f, DailyY + 5.f, GS->bDailyRun ? SQUI::BoneWhite : SQUI::Muted, 0, false);
+		const FString DailyCap = bHost ? SQInput::KeyLabel(SQInput::UsingPad() ? EKeys::Gamepad_LeftThumbstick : EKeys::Y) : FString(TEXT("HOST"));
+		HudTxt(DailyCap, HudLabelFont(true), 12.f, X + W - 18.f, DailyY + 6.f, GS->bDailyRun ? SQUI::Soul : SQUI::Disabled, 2, false);
+		if (bDailyOver && Hovered == INDEX_NONE)
+		{
+			HudWrap(TEXT("Today's map, events and district conditions: the same for everyone on this date. One bonus payout a day."), HudLabelFont(false), 12.f, X + 18.f, Y + H - 38.f, W - 36.f, SQUI::BoneWhite, 15.f, 2);
+			return;
+		}
 	}
 	// The hovered (else the last switched-on) clause's fine print
 	int32 Shown = Hovered;
@@ -3721,6 +3768,11 @@ float ASQHUD::DrawTopCentre(const ASQGameState* GS, const USQData* D)
 	const float Beat = HudPulse(HudNow, 8.f);
 
 	FString Label = GS->MissionId.IsNone() ? FString(TEXT("MISSION")) : HudPretty(GS->MissionId).ToUpper();
+	// The Long Haunt: the loop number (and the returning boss's twist) replace the mission name
+	if (GS->LoopIndex > 0)
+	{
+		Label = (bBossPhase && !GS->LoopBossMod.IsEmpty()) ? FString::Printf(TEXT("HAUNT %d  -  %s"), GS->LoopIndex, *GS->LoopBossMod) : FString::Printf(TEXT("HAUNT %d"), GS->LoopIndex);
+	}
 	FString Big;
 	FString Small;
 	float Frac = -1.f;
@@ -4753,6 +4805,11 @@ void ASQHUD::DrawEndScreen(const ASQGameState* GS, const ASQPlayerState* PS)
 	{
 		Sub += Sub.IsEmpty() ? TEXT("HARD MODE") : TEXT("  -  HARD MODE");
 	}
+	// The Long Haunt: how far the crew went after the boss (and what the cleared loops paid)
+	if (GS->RunStats.Loops > 0)
+	{
+		Sub += FString::Printf(TEXT("%s%s HAUNT %d  (+%d GOLD)"), Sub.IsEmpty() ? TEXT("") : TEXT("  -  "), GS->RunStats.bDiedInLoop ? TEXT("FELL ON") : TEXT("CASHED OUT AFTER"), GS->RunStats.Loops, GS->RunStats.LoopBonusGold);
+	}
 	if (Sub.IsEmpty())
 	{
 		Sub = bWon ? FString(TEXT("Death is almost pleased.")) : FString(TEXT("Death is... disappointed."));
@@ -5004,6 +5061,101 @@ void ASQHUD::DrawEndScreen(const ASQGameState* GS, const ASQPlayerState* PS)
 		HudPill(FString::Printf(TEXT("THE HOST PICKS: RETRY OR LOBBY  -  %ds"), SecondsLeft), VW * 0.5f, BelowY + 12.f, SQUI::WithAlpha(Accent, 0.2f), Accent, 13.f, 1);
 	}
 	HudAlpha = 1.f;
+}
+
+void ASQHUD::DrawLoopChoice(const ASQGameState* GS, const USQData* D)
+{
+	// The Long Haunt: the boss is down and the mission is won. The host (or a solo player) cashes out or goes round again.
+	if (LoopChoiceShownAt < 0.f) LoopChoiceShownAt = HudNow;
+	const float Elapsed = HudNow - LoopChoiceShownAt;
+	const float In = HudEaseOut(Elapsed / 0.35f);
+	const float VW = HudVW, VH = HudVH;
+	const float CW = FMath::Min(760.f, VW - 48.f), CH = 250.f;
+	const float CX = (VW - CW) * 0.5f, CY = VH * 0.30f + 16.f * (1.f - In);
+	const float SavedAlpha = HudAlpha;
+	HudAlpha = In;
+	HudRound(FLinearColor(0.f, 0.f, 0.f, 0.45f), CX + 4.f, CY + 8.f, CW, CH, 24.f);
+	HudRound(SQUI::WithAlpha(SQUI::Soul, 0.9f), CX - 2.f, CY - 2.f, CW + 4.f, CH + 4.f, 26.f);
+	HudRound(SQUI::WithAlpha(SQUI::PanelDeep, 0.97f), CX, CY, CW, CH, 24.f);
+
+	const int32 NextLoop = GS->LoopIndex + 1;
+	const FString Title = GS->LoopIndex > 0 ? FString::Printf(TEXT("HAUNT %d CLEARED"), GS->LoopIndex) : FString(TEXT("MISSION WON"));
+	HudTxt(Title, HudDisplayFont(), HudFitPx(Title, HudDisplayFont(), 44.f, CW - 48.f), VW * 0.5f, CY + 16.f, SQUI::Soul, 1);
+	const FString Line1 = TEXT("Everything earned so far is locked in, whatever happens next.");
+	HudTxt(Line1, HudLabelFont(true), HudFitPx(Line1, HudLabelFont(true), 15.f, CW - 48.f), VW * 0.5f, CY + 74.f, SQUI::BoneWhite, 1, false);
+	// What the next loop pays (same sum the server adds when that loop's boss falls)
+	const FSQMissionDef* Mission = GS->GetMission();
+	const float LoopShare = D ? FMath::Max(0.f, D->Tune(TEXT("EndlessLoopGoldShare"), 0.5f)) : 0.5f;
+	const float HardGold = (Mission && GS->bHardMode) ? Mission->HardGoldMult : 1.f;
+	const int32 NextBonus = FMath::RoundToInt((Mission ? static_cast<float>(Mission->ClearGold) : 100.f) * HardGold * LoopShare * static_cast<float>(NextLoop));
+	const FString Line2 = FString::Printf(TEXT("HAUNT %d: new lantern route, stronger horde, the boss returns. Clear it for +%d banked gold."), NextLoop, NextBonus);
+	HudTxt(Line2, HudLabelFont(true), HudFitPx(Line2, HudLabelFont(true), 14.f, CW - 48.f), VW * 0.5f, CY + 98.f, SQUI::Amber, 1, false);
+	const FString Line3 = TEXT("Fall in a haunt and only the gold picked up since the last boss is cut to the loss share.");
+	HudTxt(Line3, HudLabelFont(true), HudFitPx(Line3, HudLabelFont(true), 12.f, CW - 48.f), VW * 0.5f, CY + 122.f, SQUI::Muted, 1, false);
+
+	ASQPlayerController* LoopPC = Cast<ASQPlayerController>(PlayerOwner);
+	const bool bCanChoose = LoopPC && LoopPC->CanChooseAfterRun();
+	const int32 SecondsLeft = FMath::Max(0, FMath::CeilToInt(GS->LoopChoiceTimeLeft));
+	const float BtnH = 56.f, BtnGap = 16.f;
+	const float BtnW = FMath::Min(330.f, (CW - 48.f - BtnGap) * 0.5f);
+	const float BtnX0 = VW * 0.5f - BtnW - BtnGap * 0.5f, BY = CY + 152.f;
+	if (bCanChoose)
+	{
+		const bool bInputLive = Elapsed > 0.8f && !bLoopChoiceSent && !LoopPC->IsSettingsOpen();
+		float MouseX = -1.f, MouseY = -1.f;
+		const bool bMouse = HudMouseDesign(MouseX, MouseY);
+		const bool bClickNow = bInputLive && bMouse && PlayerOwner->bShowMouseCursor && PlayerOwner->WasInputKeyJustPressed(EKeys::LeftMouseButton);
+		// 0 = CASH OUT (the safe answer, also what a timeout does), 1 = KEEP REAPING
+		const FString Labels[2] = { FString(TEXT("CASH OUT")), FString(TEXT("KEEP REAPING")) };
+		const TCHAR* Keys[2] = { TEXT("C"), TEXT("ENTER") };
+		int32 Chosen = INDEX_NONE;
+		if (bInputLive)
+		{
+			const USQSaveGame* HoldSave = USQSaveGame::Load();
+			const bool bHoldNeeded = !HoldSave || HoldSave->bHoldToConfirm;
+			const bool bDown[2] = {
+				PlayerOwner->IsInputKeyDown(EKeys::C) || PlayerOwner->IsInputKeyDown(EKeys::Gamepad_FaceButton_Left),
+				PlayerOwner->IsInputKeyDown(EKeys::Enter) || PlayerOwner->IsInputKeyDown(EKeys::Gamepad_FaceButton_Top) };
+			for (int32 HoldIdx = 0; HoldIdx < 2; ++HoldIdx)
+			{
+				LoopHoldFor[HoldIdx] = bDown[HoldIdx] ? LoopHoldFor[HoldIdx] + HudDelta : 0.f;
+				if (Chosen == INDEX_NONE && bDown[HoldIdx] && (!bHoldNeeded || LoopHoldFor[HoldIdx] >= 0.45f)) Chosen = HoldIdx;
+			}
+		}
+		else
+		{
+			LoopHoldFor[0] = LoopHoldFor[1] = 0.f;
+		}
+		for (int32 BtnIdx = 0; BtnIdx < 2; ++BtnIdx)
+		{
+			const float BX = BtnX0 + BtnIdx * (BtnW + BtnGap);
+			const bool bOver = bMouse && MouseX >= BX && MouseX <= BX + BtnW && MouseY >= BY && MouseY <= BY + BtnH;
+			if (bOver && bClickNow) Chosen = BtnIdx;
+			const bool bPrimary = BtnIdx == 1;
+			const FLinearColor Ink = bPrimary ? SQUI::Midnight : SQUI::BoneWhite;
+			if (bPrimary) HudGlow(SQUI::Soul, BX, BY, BtnW, BtnH, 18.f, 0.3f + 0.3f * HudPulse(HudNow, 3.5f));
+			HudRound(bPrimary ? SQUI::SoulDeep : SQUI::Line, BX - 2.f, BY - 2.f, BtnW + 4.f, BtnH + 4.f, 20.f);
+			HudRound(bPrimary ? SQUI::Soul : SQUI::Panel, BX, BY, BtnW, BtnH, 18.f);
+			// hold progress fills the button from the left
+			const float HoldFrac = FMath::Clamp(LoopHoldFor[BtnIdx] / 0.45f, 0.f, 1.f);
+			if (HoldFrac > 0.02f) HudRound(SQUI::WithAlpha(SQUI::BoneWhite, 0.25f), BX, BY, FMath::Max(18.f, BtnW * HoldFrac), BtnH, 18.f);
+			const float LabelPx = HudFitPx(Labels[BtnIdx], HudHeadFont(), 24.f, BtnW - 110.f);
+			HudTxt(Labels[BtnIdx], HudHeadFont(), LabelPx, BX + BtnW * 0.5f - 22.f, BY + BtnH * 0.5f - 0.62f * LabelPx, Ink, 1, false);
+			HudPill(SQInput::UsingPad() ? (BtnIdx == 0 ? TEXT("X") : TEXT("Y")) : Keys[BtnIdx], BX + BtnW - 16.f, BY + BtnH * 0.5f - 13.f, SQUI::WithAlpha(SQUI::Midnight, bPrimary ? 0.25f : 0.6f), Ink, 12.f, 2);
+		}
+		if (Chosen != INDEX_NONE)
+		{
+			bLoopChoiceSent = true;
+			Play(TEXT("Bank"), 0.6f, 0.f);
+			LoopPC->ServerLoopChoice(Chosen == 1);
+		}
+		HudTxt(FString::Printf(TEXT("HOLD TO CHOOSE  -  CASHES OUT IN %ds"), SecondsLeft), HudLabelFont(true), 12.f, VW * 0.5f, BY + BtnH + 12.f, SQUI::Muted, 1, false);
+	}
+	else
+	{
+		HudPill(FString::Printf(TEXT("THE HOST DECIDES: CASH OUT OR KEEP REAPING  -  %ds"), SecondsLeft), VW * 0.5f, BY + 14.f, SQUI::WithAlpha(SQUI::Soul, 0.2f), SQUI::Soul, 13.f, 1);
+	}
+	HudAlpha = SavedAlpha;
 }
 
 void ASQHUD::BuildEndUnlocks(const USQData* D)
@@ -5641,6 +5793,37 @@ void ASQHUD::MinimapDrawIcons(const ASQGameState* GS, const ASQCharacter* C, con
 	};
 	const float Pulse = HudPulse(HudNow, 5.f);
 
+	// Run events and district conditions (content item 12)
+	if (GS)
+	{
+		const TArray<FSQDistrict>* CondDistricts = GS->Arena ? &GS->Arena->GetDistricts() : nullptr;
+		for (int32 CondIdx = 0; CondDistricts && CondIdx < GS->ConditionIds.Num() && CondIdx < GS->ConditionDistricts.Num(); ++CondIdx)
+		{
+			const FSQEventDef* Cond = SQQuests::FindEvent(GS->ConditionIds[CondIdx]);
+			float CondX = 0.f, CondY = 0.f;
+			if (!Cond || !CondDistricts->IsValidIndex(GS->ConditionDistricts[CondIdx])) continue;
+			const FVector2D CondCentre = (*CondDistricts)[GS->ConditionDistricts[CondIdx]].Centre;
+			if (!ToPanel(FVector(CondCentre.X, CondCentre.Y, 0.f), false, CondX, CondY)) continue;
+			// A hollow square (shape, not only colour): this district's drops are richer
+			const float CondR = 5.f * IconK;
+			HudRect(Cond->Color, CondX - CondR, CondY - CondR, CondR * 2.f, CondR * 2.f);
+			HudRect(SQUI::Midnight, CondX - CondR + 1.5f, CondY - CondR + 1.5f, CondR * 2.f - 3.f, CondR * 2.f - 3.f);
+			if (bFull) HudTxt(Cond->Name.ToUpper(), HudLabelFont(true), 11.f, CondX, CondY + CondR + 3.f, Cond->Color, 1);
+		}
+		const FSQEventDef* MapEvent = GS->ActiveEvent();
+		float EventX = 0.f, EventY = 0.f;
+		if (MapEvent && GS->bEventHasPos && ToPanel(GS->EventPos, true, EventX, EventY))
+		{
+			// A pulsing ring with a cross through it, pinned to the border when the event is off the corner map
+			const float EventR = (7.f + 2.5f * Pulse) * IconK;
+			HudDisc(SQUI::WithAlpha(MapEvent->Color, 0.3f + 0.25f * Pulse), EventX, EventY, EventR + 3.f);
+			HudDisc(MapEvent->Color, EventX, EventY, 3.5f * IconK);
+			HudLine(EventX - EventR, EventY, EventX + EventR, EventY, 1.5f, MapEvent->Color);
+			HudLine(EventX, EventY - EventR, EventX, EventY + EventR, 1.5f, MapEvent->Color);
+			if (bFull) HudTxt(MapEvent->Name.ToUpper(), HudLabelFont(true), 12.f, EventX, EventY + EventR + 4.f, MapEvent->Color, 1);
+		}
+	}
+
 	// --- Pings (co-op pass): a blinking blip in the pinger's colour, pinned to the border when off-panel
 	if (const UWorld* PingWorld = GetWorld())
 	{
@@ -5696,6 +5879,8 @@ void ASQHUD::MinimapDrawIcons(const ASQGameState* GS, const ASQCharacter* C, con
 
 	// --- Lantern trail: spent lanterns (grey), ones still dark (hollow), the lit one (amber, pinned to the border with a pointer)
 	float IX = 0.f, IY = 0.f;
+	// Content pass: the local player's earned trail colour (Cosmetics.csv, Kind Trail); amber is the standard look
+	const FLinearColor TrailCol = SQQuests::EquippedColor(USQSaveGame::Load(), TEXT("Trail"), SQUI::Amber);
 	for (int32 SiteIdx = 0; SiteIdx < GS->TrailSites.Num(); ++SiteIdx)
 	{
 		const bool bLit = SiteIdx == GS->TrailStage;
@@ -5707,10 +5892,10 @@ void ASQHUD::MinimapDrawIcons(const ASQGameState* GS, const ASQCharacter* C, con
 			{
 				// A line from you towards it: the way to go at a glance
 				float MeX = 0.f, MeY = 0.f;
-				if (ToPanel(C->GetActorLocation(), true, MeX, MeY)) HudLine(MeX, MeY, IX, IY, 1.5f, SQUI::WithAlpha(SQUI::Amber, 0.55f));
+				if (ToPanel(C->GetActorLocation(), true, MeX, MeY)) HudLine(MeX, MeY, IX, IY, 1.5f, SQUI::WithAlpha(TrailCol, 0.55f));
 			}
 			HudDisc(SQUI::Midnight, IX, IY, R + 2.f);
-			HudDisc(SQUI::Amber, IX, IY, R);
+			HudDisc(TrailCol, IX, IY, R);
 			HudRect(SQUI::Midnight, IX - R * 0.28f, IY - R * 0.55f, R * 0.56f, R * 1.1f);
 			HudRect(FLinearColor(1.f, 0.95f, 0.7f), IX - R * 0.16f, IY - R * 0.35f, R * 0.32f, R * 0.7f);
 		}
@@ -5869,6 +6054,12 @@ void ASQHUD::DrawMinimap(const ASQGameState* GS, const ASQCharacter* C, const US
 		HudPanel(MX - 6.f, MY - 6.f, S + 12.f, S + 12.f, 12.f, SQUI::Line, 0.92f);
 		HudTexture(MinimapTex, MX, MY, S, S, FLinearColor::White, static_cast<float>(UV0.X), static_cast<float>(UV0.Y), static_cast<float>(UV1.X), static_cast<float>(UV1.Y));
 		MinimapDrawIcons(GS, C, D, MX, MY, S, S, UV0, UV1, false);
+		if (GS && GS->IsEventSpecial(ESQEventSpecial::Fog))
+		{
+			// Rolling Fog Bank: the corner map is blind while it lasts (the full map, M, stays readable)
+			HudRect(SQUI::WithAlpha(FLinearColor(0.42f, 0.46f, 0.52f), 0.93f), MX, MY, S, S);
+			HudTxt(TEXT("FOG"), HudHeadFont(), 22.f, MX + S * 0.5f, MY + S * 0.5f - 12.f, SQUI::BoneWhite, 1);
+		}
 		// Under it: the district you're in and the key for the big map
 		FString Where = TEXT("LANTERN SQUARE");
 		FLinearColor WhereColour = SQUI::BoneWhite;
@@ -5940,4 +6131,30 @@ void ASQHUD::DrawMinimap(const ASQGameState* GS, const ASQCharacter* C, const US
 		Legend(FLinearColor(0.95f, 0.15f, 0.25f), TEXT("Bell / Boss"), 0);
 		HudAlpha = SavedAlpha;
 	}
+}
+
+// ============================================================ run events (content item 12)
+
+float ASQHUD::DrawEventTracker(const ASQGameState* GS, float Y)
+{
+	const FSQEventDef* Ev = GS ? GS->ActiveEvent() : nullptr;
+	if (!Ev) return 0.f;
+	const float Left = FMath::Max(0.f, GS->EventEndTime - static_cast<float>(GS->GetServerWorldTimeSeconds()));
+	const float W = 420.f, H = 54.f;
+	const float X = HudVW * 0.5f - W * 0.5f;
+	HudPanel(X, Y, W, H, 12.f, SQUI::WithAlpha(Ev->Color, 0.8f), 0.88f);
+	HudRect(Ev->Color, X + 10.f, Y + 10.f, 4.f, H - 20.f);
+	const FString Name = Ev->Name.ToUpper();
+	HudTxt(Name, HudHeadFont(), HudFitPx(Name, HudHeadFont(), 16.f, W - 110.f), X + 24.f, Y + 7.f, SQUI::BoneWhite);
+	HudTxt(FString::Printf(TEXT("%d:%02d"), FMath::FloorToInt(Left / 60.f), FMath::FloorToInt(FMath::Fmod(Left, 60.f))), HudLabelFont(true), 15.f, X + W - 16.f, Y + 9.f, Left < 10.f ? SQUI::Danger : SQUI::Muted, 2, false);
+	if (Ev->Kind == ESQEventKind::Site)
+	{
+		// The hold: fills while a reaper stands in the ring
+		HudBar(X + 24.f, Y + 34.f, W - 48.f, 8.f, static_cast<float>(GS->EventHoldPct) / 100.f, 0.f, Ev->Color);
+	}
+	else if (!Ev->Hint.IsEmpty())
+	{
+		HudTxt(Ev->Hint, HudLabelFont(false), HudFitPx(Ev->Hint, HudLabelFont(false), 12.f, W - 48.f), X + 24.f, Y + 31.f, SQUI::Muted, 0, false);
+	}
+	return H + 8.f;
 }

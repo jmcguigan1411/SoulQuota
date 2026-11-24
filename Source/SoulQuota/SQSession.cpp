@@ -301,3 +301,11 @@ void SQSession::ListenForInvites(UWorld* World)
 	Sessions->ClearOnSessionUserInviteAcceptedDelegate_Handle(SesInviteHandle);
 	SesInviteHandle = Sessions->AddOnSessionUserInviteAcceptedDelegate_Handle(FOnSessionUserInviteAcceptedDelegate::CreateStatic(&SesOnInviteAccepted));
 }
+
+void SQSession::SubmitScore(const UObject* WorldContext, FName Board, int32 Score)
+{
+	// Deliberately a stub: the Null service has no boards, and the Steam leaderboard interface is wired in the Steam pass
+	// (Docs/Steam.md, "Leaderboards"). Every caller already keeps its own local best in USQSaveGame.
+	if (!WorldContext || Board.IsNone() || Score <= 0) return;
+	UE_LOG(LogTemp, Verbose, TEXT("SQSession::SubmitScore %s = %d (%s: local only)"), *Board.ToString(), Score, *ServiceName());
+}

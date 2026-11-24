@@ -95,6 +95,11 @@ struct FSQRunStats
 	UPROPERTY() float FinalSwarmSeconds = 0.f;
 	/** First win of this mission (or of its Hard mode) this run: the menu can make a fuss */
 	UPROPERTY() bool bFirstClear = false;
+	/** The Long Haunt: loops begun after the mission boss (0 = cashed out at the first boss or never got there) */
+	UPROPERTY() int32 Loops = 0;
+	/** The crew wiped inside a loop: still a win, with the loop's unlocked gold banked at the loss share */
+	UPROPERTY() bool bDiedInLoop = false;
+	UPROPERTY() int32 LoopBonusGold = 0;
 	UPROPERTY() TArray<FSQPlayerRunStats> Players;
 };
 
@@ -354,6 +359,8 @@ public:
 	bool AllResolved() const;
 	/** Lantern trail: on for this stage / every lantern lit or burnt out */
 	bool HasTrail() const { return Trail.bOn; }
+	/** The Long Haunt: added to the arena's RunSeed so each loop lights a different lantern route on the same map */
+	int32 TrailSeedSalt = 0;
 	bool IsTrailDone() const { return !Trail.bOn || Trail.bDone; }
 	int32 NumObjectives() const { return Runs.Num(); }
 	int32 NumDone() const;

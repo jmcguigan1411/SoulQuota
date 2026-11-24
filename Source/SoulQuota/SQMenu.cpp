@@ -26,6 +26,7 @@
 #include "SQSession.h"
 #include "SQUIStyle.h"
 #include "SQQuests.h"
+#include "SQInput.h"
 #include "SQTutorial.h"
 #include "SQMission.h"
 #include "SQPlayerState.h"
@@ -1595,7 +1596,27 @@ bool ASQMenuHUD::DrawReaperCard(float X, float Y, float W, float Appear)
 	Stat(TEXT("RUNS PLAYED"), FString::FromInt(Save ? Save->RunsPlayed : 0), TX, TY, SQUI::BoneWhite);
 	Stat(TEXT("RUNS WON"), FString::FromInt(Save ? Save->RunsWon : 0), TX + ColW, TY, SQUI::BoneWhite);
 	TY += 80.f * U;
-	Stat(TEXT("BANKED GOLD"), FString::FromInt(Save ? Save->OvertimePay : 0), TX, TY, SQUI::Amber);
+	// Content pass (Nov 24 2026): the closest unfinished unlock (banked gold already has the big number above)
+	{
+		FString NextName, NextReward;
+		float NextFrac = 0.f;
+		if (SQQuests::NearestGoal(Save, D, NextName, NextReward, NextFrac))
+		{
+			const float NextW = ColW - 16.f * U;
+			Txt(TEXT("NEXT UNLOCK"), LabelFont(true), 13.f, TX, TY, SQUI::Muted);
+			const FString NextUpper = NextName.ToUpper();
+			const float NamePx = FMath::Clamp(22.f * NextW / FMath::Max(1.f, TxtWidth(NextUpper, HeadFont(), 22.f)), 13.f, 22.f);
+			Txt(NextUpper, HeadFont(), NamePx, TX, TY + 20.f * U, SQUI::BoneWhite);
+			const float RewardPx = FMath::Clamp(13.f * NextW / FMath::Max(1.f, TxtWidth(NextReward, LabelFont(true), 13.f)), 10.f, 13.f);
+			Txt(NextReward, LabelFont(true), RewardPx, TX, TY + 46.f * U, SQUI::Amber);
+			Round(SQUI::Line, TX, TY + 66.f * U, NextW, 6.f * U, 3.f * U);
+			Round(SQUI::Amber, TX, TY + 66.f * U, FMath::Max(6.f * U, NextW * NextFrac), 6.f * U, 3.f * U);
+		}
+		else
+		{
+			Stat(TEXT("UNLOCKS"), TEXT("ALL DONE"), TX, TY, SQUI::Amber);
+		}
+	}
 	const int32 Have = Save ? Save->MissionsCleared.Num() : 0;
 	const int32 Total = USQMissions::Missions().Num();
 	Stat(TEXT("MISSIONS CLEARED"), FString::Printf(TEXT("%d / %d"), Have, Total), TX + ColW, TY, SQUI::Soul);
@@ -2504,10 +2525,39 @@ void ASQMenuHUD::DrawQuestsPage()
 	// Header: how many are done, banked gold
 	DrawAlpha = MenuAppear(Elapsed, 0.05f, 0.3f);
 	const int32 DoneCount = Save->QuestsDone.Num();
-	const float HeadW = Txt(FString::Printf(TEXT("UNLOCKED  %d / %d"), DoneCount, All.Num()), HeadFont(), 26.f, RX, Top, SQUI::BoneWhite);
+	const float HeadW = Txt(FString::Printf(TEXT("UNLOCKED  %d / %d    LEDGER RANK %d"), DoneCount, All.Num(), Save->LedgerRank), HeadFont(), 26.f, RX, Top, SQUI::BoneWhite);
 	Round(SQUI::Line, RX + HeadW + 20.f * U, Top + 12.f * U, 220.f * U, 10.f * U, 5.f * U);
 	Round(SQUI::Soul, RX + HeadW + 20.f * U, Top + 12.f * U, FMath::Max(10.f * U, 220.f * U * DoneCount / FMath::Max(1, All.Num())), 10.f * U, 5.f * U);
 	Txt(FString::Printf(TEXT("BANKED GOLD  %d"), Save->OvertimePay), HeadFont(), 22.f, RX + RW, Top + 2.f * U, SQUI::Amber, 2);
+	// Content pass (Nov 24 2026): earned lantern trail colours; T (pad Y) wears the next one you own
+	{
+		int32 TrailOwned = 0, TrailTotal = 0;
+		for (const FSQCosmeticDef& Cos : SQQuests::Cosmetics())
+		{
+			if (Cos.Kind != TEXT("Trail")) continue;
+			++TrailTotal;
+			if (Save->CosmeticsOwned.Contains(Cos.Id)) ++TrailOwned;
+		}
+		if (TrailTotal > 0)
+		{
+			APlayerController* TrailPC = GetOwningPlayerController();
+			if (TrailOwned > 0 && TrailPC && (TrailPC->WasInputKeyJustPressed(EKeys::T) || TrailPC->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Top)))
+			{
+				if (USQSaveGame* EditSave = GetSave())
+				{
+					ShowToast(FString::Printf(TEXT("LANTERN TRAIL: %s"), *SQQuests::CycleCosmetic(EditSave, TEXT("Trail"))), SQUI::Soul);
+					StoreSave();
+					PlayUI(TEXT("Soul"), 0.2f, 1.2f);
+				}
+			}
+			const FLinearColor TrailNow = SQQuests::EquippedColor(Save, TEXT("Trail"), SQUI::Amber);
+			const FString TrailText = TrailOwned > 0 ? FString::Printf(TEXT("TRAIL COLOURS  %d / %d   %s TO CHANGE"), TrailOwned, TrailTotal, SQInput::UsingPad() ? TEXT("Y") : TEXT("T"))
+				: FString::Printf(TEXT("TRAIL COLOURS  0 / %d"), TrailTotal);
+			const float TrailW = Txt(TrailText, LabelFont(true), 14.f, RX + RW - 26.f * U, Top + 32.f * U, SQUI::Muted, 2);
+			Round(TrailNow, RX + RW - 18.f * U, Top + 33.f * U, 16.f * U, 16.f * U, 8.f * U);
+			(void)TrailW;
+		}
+	}
 
 	// Tabs
 	float TabX = RX;

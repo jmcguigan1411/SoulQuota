@@ -1976,6 +1976,12 @@ def bank_for(d, m, players, hard, won, ranks, first_clear, first_hard, coin_mult
     return bank, earned, done
 
 
+LANTERN_LIT_SHARE = 0.8     # share of a run's lanterns a solo player fills in time (assumption)
+EVENT_DONE_SHARE = 0.6      # share of a run's random events the player answers (assumption)
+LOOP_EVERY = 4              # a win in every 4th run is followed by one haunt (assumption: most runs cash out)
+LOOP_CLEAR_SHARE = 0.6      # chance that haunt's boss falls
+
+
 def mission_pacing(d, seed):
     """A new SOLO player plays missions back to back. Returns (log, state)."""
     import random
@@ -1993,6 +1999,8 @@ def mission_pacing(d, seed):
     runs = 0
     log = []
     ups = {e["Id"]: e for e in d.enemies}
+    snaps = []
+    ledger = [0.0, 0]
 
     def derived(stat):
         return {"QuestsDone": len(done), "ReapersHired": len(hired), "Contracts": len(cleared), "ReaperWins": len(won_with),
@@ -2131,6 +2139,13 @@ def mission_pacing(d, seed):
         add("Dashes", DASHES_PER_NIGHT * 3 * frac)
         add("SoulsBanked", 250 * frac)
         add("RunsPlayed", 1)
+        # Content pass (Nov 24 2026): lanterns lit credit Obj_BankSouls (one per lit lantern); events answered; loops after a win
+        add("Obj_BankSouls", int(d.t("LanternStages", 4)) * frac * LANTERN_LIT_SHARE)
+        add("EventsDone", d.t("EventsPerRun", 3) * frac * EVENT_DONE_SHARE)
+        if won and len(cleared) >= 1 and runs % LOOP_EVERY == LOOP_EVERY - 1:
+            add("LoopsBegun", 1)
+            if rng.random() < LOOP_CLEAR_SHARE:
+                add("LoopsCleared", 1)
         add("PlateausClimbed", PLATEAUS_PER_RUN)
         add("ShrinesUsed", SHRINES_PER_RUN)
         add("SlideKills", SLIDE_KILLS_PER_RUN)
@@ -2161,6 +2176,16 @@ def mission_pacing(d, seed):
                     add("ModWin_" + mods[(runs + k) % len(mods)]["Id"], 1)
                 run_stats["ModsInWin"] = nm
         run_stats["DifficultyPct"] = 20 + (40 if runs >= 30 and runs % 5 == 0 else 0)
+        # Death's Ledger (ASQPlayerState::ClientMissionEnd): a rank or more every finished run
+        if d.t("LedgerRanks", 1) >= 0.5 and ledger[1] < d.t("LedgerMaxRank", 300):
+            ledger[0] += max(d.t("LedgerMinXP", 100), play / 60.0 * d.t("LedgerXPPerMinute", 10) + (d.t("LedgerXPWin", 40) if won else 0))
+            lgold = 0
+            while ledger[0] >= d.t("LedgerXPPerRank", 100) and ledger[1] < d.t("LedgerMaxRank", 300):
+                ledger[0] -= d.t("LedgerXPPerRank", 100); ledger[1] += 1
+                lgold += d.t("LedgerGoldPerRank", 25) + (d.t("LedgerGoldEvery5", 100) if ledger[1] % 5 == 0 else 0)
+            if lgold:
+                banked += lgold
+                log.append((clock + mins, "ledger", "Ledger rank %d" % ledger[1], "%d gold" % lgold))
         bank += banked
         totals["GoldBanked"] = totals.get("GoldBanked", 0) + banked
         if won:
@@ -2175,8 +2200,9 @@ def mission_pacing(d, seed):
                     "P(win) %.0f%%, +%d gold banked (%.1f min)" % (pw * 100, banked, mins)))
         spend(clock)
         runs += 1
+        snaps.append((clock, dict(totals), dict(bests)))
     return log, dict(cleared=cleared, hard=hard_cleared, ranks=ranks, hired=hired, done=done, quests=quests, runs=runs,
-                     max_meta=max_meta, clock=clock)
+                     max_meta=max_meta, clock=clock, snaps=snaps)
 
 
 def missions_sections(d):
@@ -3981,6 +4007,76 @@ def report_pacing(d):
     d._pace = dict(first_clear=med(fc_runs), first_min=med(fc_min), hour1=hour1, maps=pk(0), hard=pk(1), all=pk(2), gap=max(gaps))
 
 
+
+def report_events(d):
+    """Content item 12 (Nov 24 2026): what the random events add to a run. Reads Events.csv + Missions.csv; no simulation."""
+    try:
+        events = read_csv("Events.csv")
+        missions = read_csv("Missions.csv")
+    except Exception as err:  # the file is optional in the game too
+        print("\n-- 28. RUN EVENTS: Events.csv not readable (%s)" % err)
+        return
+    num = lambda row, key, default=1.0: float(row.get(key) or default)
+    per_run = int(d.t("EventsPerRun", 3))
+    print("\n-- 28. RUN EVENTS (Events.csv; %d per mission, +%d per haunt loop; shares assume every event rolls by weight)" % (per_run, int(d.t("EventLoopExtra", 1))))
+    print("  map             pool  event min/run  horde  XP     souls  gold   (run-average multipliers from Ambient / Toll events)")
+    for m in missions:
+        biome = m.get("Biome") or m.get("Id")
+        pool = [e for e in events if e.get("Kind") != "Condition" and num(e, "Weight") > 0 and (not e.get("Biome") or e.get("Biome") == biome)]
+        total_w = sum(num(e, "Weight") for e in pool) or 1.0
+        dur = float(m.get("Duration") or 600)
+        active, up = 0.0, {"SpawnMult": 0.0, "XPMult": 0.0, "SoulMult": 0.0, "GoldMult": 0.0}
+        for e in pool:
+            share = num(e, "Weight") / total_w * per_run
+            secs = num(e, "Seconds", 45)
+            if e.get("Kind") == "Site":
+                secs *= 0.5  # assumption: a site is answered about half way through its timer
+            active += share * secs
+            for key in up:
+                up[key] += share * secs * (num(e, key) - 1.0)
+        print("  %-15s %4d  %8.1f       x%.3f x%.3f x%.3f x%.3f" % (m.get("Id"), len(pool), active / 60.0,
+              1 + up["SpawnMult"] / dur, 1 + up["XPMult"] / dur, 1 + up["SoulMult"] / dur, 1 + up["GoldMult"] / dur))
+    conds = [e for e in events if e.get("Kind") == "Condition"]
+    print("  District conditions: %d in the file, %d rolled per run (drops inside that district only)." % (len(conds), int(d.t("DistrictConditions", 2))))
+
+def report_unlock_audit(d):
+    """Content pass (Nov 24 2026, Docs/Content.md item 11): is there something new often enough? Uses the journey sims."""
+    sims = d._pacing
+    med = lambda v: statistics.median(v) if v else 0
+    kinds = ("quest", "hire", "meta")
+    any_kinds = kinds + ("ledger",)
+    print("\n-- 27. UNLOCK PACING AUDIT (targets: a reward after every one of the first 10 runs; no gap over 20 min in the first 10 h)")
+    dry_runs, worst_gaps, over20, where = [], [], [], {}
+    for log, st in sims:
+        run_ends = [e[0] for e in log if e[1] == "run"][:10]
+        dry = 0
+        prev = 0.0
+        for t in run_ends:
+            got = any(e[1] in kinds and prev < e[0] <= t + 1e-6 for e in log) or any(e[1] == "run" and "WIN" in e[2] and abs(e[0] - t) < 1e-6 and "first" in e[3] for e in log)
+            dry += 0 if got else 1
+            prev = t
+        dry_runs.append(dry)
+        times = [0.0] + sorted(e[0] for e in log if e[1] in kinds and e[0] <= 600.0) + [600.0]
+        gaps = [(b - a, a) for a, b in zip(times, times[1:])]
+        worst_gaps.append(max(g[0] for g in gaps))
+        over20.append(sum(1 for g in gaps if g[0] > 20.0))
+        for g, a in gaps:
+            if g > 20.0:
+                where[int(a // 60)] = where.get(int(a // 60), 0) + 1
+    print("   First 10 runs with nothing new (quest / hire / upgrade): median %d, worst seed %d" % (med(dry_runs), max(dry_runs)))
+    any_gap = []
+    for log, st in sims:
+        times = [0.0] + sorted(e[0] for e in log if e[1] in any_kinds and e[0] <= 600.0) + [600.0]
+        any_gap.append(max(b - a for a, b in zip(times, times[1:])))
+    print("   Counting Death's Ledger ranks as a reward: longest gap in the first 10 h median %.0f min, worst seed %.0f min" % (med(any_gap), max(any_gap)))
+    print("   Longest gap in the first 10 h: median %.0f min, worst seed %.0f min; gaps over 20 min per seed: median %d" % (med(worst_gaps), max(worst_gaps), med(over20)))
+    print("   Hour in which the over-20-min gaps start (all seeds): " + (", ".join("h%d x%d" % (h + 1, n) for h, n in sorted(where.items())) or "none"))
+    quests = [q for q in d.quests if q.get("Id")]
+    done_10h = med([sum(1 for e in log if e[1] == "quest" and e[0] <= 600.0) for log, st in sims])
+    print("   Quests: %d in the file, %.0f done by hour 10 (median). Meta ranks %d, reapers to hire %d." % (len(quests), done_10h, meta_total_ranks(d), sum(1 for r in d.reapers if num(r["UnlockCost"]) > 0)))
+    d._audit = dict(dry=med(dry_runs), dry_worst=max(dry_runs), gap=med(worst_gaps), gap_worst=max(worst_gaps), over20=med(over20))
+
+
 SENS_PARAMS = [
     ("Tuning", "SpawnRatePeak"), ("Tuning", "XPGrowth"), ("Tuning", "EnemyHealthPerMinute"), ("Tuning", "StageHpRefRatio"),
     ("Tuning", "EconomyBossHealth3"), ("Tuning", "AbilityDamagePerLevel"), ("Tuning", "EnemyDamagePerNight"), ("Tuning", "RarityRare"),
@@ -4154,6 +4250,8 @@ def unified_report(d, quick=False):
     report_components(d)
     report_kits(d)
     report_pacing(d)
+    report_unlock_audit(d)
+    report_events(d)
     report_reap(d)
     if not quick:
         report_sensitivity(d)

@@ -181,6 +181,11 @@ private:
 	float EndShownAt = -100.f;
 	/** RETRY / CHANGE REAPER hover lifts, and the choice already sent (no double sends) */
 	float EndBtnLift[2] = { 0.f, 0.f };
+	// The Long Haunt (Nov 24 2026): the cash out / keep reaping card after a boss
+	void DrawLoopChoice(const ASQGameState* GS, const USQData* D);
+	float LoopHoldFor[2] = { 0.f, 0.f };
+	float LoopChoiceShownAt = -1.f;
+	bool bLoopChoiceSent = false;
 	/** End screen: how long RETRY / CHANGE REAPER keys have been held (hold to confirm) */
 	float EndHoldFor[2] = { 0.f, 0.f };
 	bool bEndChoiceSent = false;
@@ -234,6 +239,8 @@ private:
 	void DrawBeatBanner(const ASQGameState* GS);
 	/** Name + health bar of the living timeline miniboss; returns the height used */
 	float DrawMinibossBar(const ASQGameState* GS, float Y);
+	/** Run events (content item 12): the running event's name, time left and hold bar under the miniboss bar. Returns the height used. */
+	float DrawEventTracker(const ASQGameState* GS, float Y);
 	/** Quest-complete / chest / notice cards (local to this PC), right side under the team panel */
 	void DrawLocalToasts(const ASQPlayerState* PS);
 	/** Lobby: the Contract Clauses (challenge modifiers) list; the host clicks to toggle */

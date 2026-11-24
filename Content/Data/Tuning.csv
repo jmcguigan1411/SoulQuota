@@ -735,3 +735,37 @@ ReconnectGraceSeconds,300,Co-op: a player who drops mid-run leaves their reaper 
 LateJoinCatchUp,1,Co-op: 1 = a new player joining mid-run banks catch-up level-up picks and the squad's average gold. 0 = they start from nothing
 LateJoinLevelShare,0.8,Co-op: share of the team's level-ups a mid-run joiner banks (1 = all of them)
 SessionAdvertise,1,Co-op: a hosted lobby advertises itself to the session service (LAN beacon today; Steam lobby after the config switch). 0 = direct IP / invite code only
+# --- The Long Haunt (Nov 24 2026, Docs/Content.md): optional loops after the mission boss ---
+EndlessLoops,1,1 = after the boss the host / solo player chooses CASH OUT or KEEP REAPING. 0 = the boss ends the mission as before
+EndlessMaxLoops,50,Loops allowed in one run (the choice stops being offered after this many)
+EndlessChoiceSeconds,25,Seconds the host has to choose; no answer = cash out
+EndlessStageShare,0.6,A loop's stage length as a share of the mission's Duration (the crew is already built)
+EndlessDifficultyPerLoop,0.35,Difficulty added at the start of each loop (drives spawn rate; the on-screen cap and the performance governor still apply)
+EndlessHealthPerLoop,0.6,Enemy and boss health: +60% per loop (x1.6 loop 1; x2.2 loop 2 ...)
+EndlessHealthCap,40,Ceiling for the loop health multiplier
+EndlessDamagePerLoop,0.2,Enemy damage: +20% per loop
+EndlessDamageCap,6,Ceiling for the loop damage multiplier
+EndlessElitePerLoop,0.5,Elite weight: +50% per loop (multiplies the Contract Clause EliteMult)
+EndlessEliteCap,6,Ceiling for the loop elite multiplier
+EndlessLoopGoldShare,0.5,Banked gold for clearing loop N = ClearGold x Hard gold x this x N (locked when that loop's boss falls)
+EndlessBossDefianceCap,6,Extra Defiance stacks the returning boss gets from the loop number (each: +25% HP; +5% speed; +15% damage)
+EndlessEscortCap,8,Most miniboss-type escorts the ESCORTED twist brings (2 + loop number up to this)
+# --- Unlock pacing (Nov 24 2026, Docs/Content.md item 11) ---
+LedgerRanks,1,Death's Ledger: 1 = every finished run (win or lose) moves a profile rank on and each rank pays a little banked gold. 0 = off
+LedgerXPPerRank,100,Ledger XP for one rank (flat: the rank never gets slower)
+LedgerXPPerMinute,10,Ledger XP per minute of mission played
+LedgerXPWin,40,Extra Ledger XP for a win
+LedgerMinXP,100,Least Ledger XP any finished run gives (so every run is at least one rank)
+LedgerGoldPerRank,25,Banked gold per Ledger rank
+LedgerGoldEvery5,100,Extra banked gold on every 5th Ledger rank
+LedgerMaxRank,300,The Ledger stops here
+EventsPerRun,3,Random events in a mission (Events.csv; also read by Scripts/balance_model.py)
+EventFirstAt,0.12,Stage progress (0..1) of the first random event
+EventLastAt,0.85,Stage progress of the last random event (the rest are spread between)
+EventSiteRadius,260,Ring radius (cm) of an event site
+EventLoopExtra,1,Extra events per Long Haunt loop
+EventAllyDamage,0.2,Damage boost a freed spirit gives every reaper (Ally reward)
+DistrictConditions,2,District conditions rolled per run (0 = off)
+DailyGoldBonus,40,Banked gold for the first Daily Haunt finished each day
+KingTideRise,120,cm the King Tide stands above the normal high tide
+ClockFastRate,2,Clock hand speed multiplier during The Clock Runs Fast
