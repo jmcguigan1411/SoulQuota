@@ -330,3 +330,40 @@ int32 ASQGameState::ShopPrice(int32 Index) const
 		* FMath::Clamp(D->Tune(TEXT("NightSeconds"), 360.f) / FMath::Max(1.f, D->Tune(TEXT("BalanceNightSeconds"), 360.f)), 0.1f, 4.f); // short test nights earn less
 	return FMath::Max(0, FMath::RoundToInt(FMath::Min(static_cast<float>(FMath::Max(0, D->Shop[Index].Cost)) * Mult, 1.0e9f)));
 }
+
+// ---------------------------------------------------------------- ping wheel (Nov 23 2026)
+
+void ASQGameState::AddLocalPing(uint8 Kind, const FVector& Where, uint8 Slot, const FString& Who)
+{
+	const UWorld* PingWorld = GetWorld();
+	const double PingNow = PingWorld ? PingWorld->GetTimeSeconds() : 0.0;
+	LocalPings.RemoveAll([PingNow, Slot](const FSQPing& Old) { return PingNow - Old.Time > 8.0 || Old.Slot == Slot; }); // one live ping per player
+	if (LocalPings.Num() >= 8) LocalPings.RemoveAt(0);
+	FSQPing& Ping = LocalPings.AddDefaulted_GetRef();
+	Ping.Where = Where;
+	Ping.Who = Who.Left(24);
+	Ping.Time = PingNow;
+	Ping.Kind = Kind;
+	Ping.Slot = Slot;
+}
+
+FLinearColor ASQGameState::PingColor(uint8 Slot)
+{
+	// One colour per player, clear of XP green / gold / soul teal
+	static const FLinearColor Colors[4] = {
+		FLinearColor(0.35f, 0.72f, 1.f), FLinearColor(1.f, 0.45f, 0.75f), FLinearColor(0.78f, 0.55f, 1.f), FLinearColor(1.f, 0.6f, 0.3f) };
+	return Colors[Slot % 4];
+}
+
+const TCHAR* ASQGameState::PingLabel(uint8 Kind)
+{
+	switch (Kind)
+	{
+	case 1: return TEXT("HELP ME");
+	case 2: return TEXT("LANTERN");
+	case 3: return TEXT("CHEST");
+	case 4: return TEXT("DANGER");
+	case 5: return TEXT("THANKS");
+	default: return TEXT("HERE");
+	}
+}

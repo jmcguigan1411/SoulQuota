@@ -695,7 +695,11 @@ int32 USQAbilityComponent::HitCircle(const FCast& C, const FVector2D& Center, fl
 	if (!R || !Horde || Radius <= 0.f) return 0;
 	const float Slow = (Effects & SQAbilityFx::Slow) ? EffTime : 0.f;
 	int32 Hits = 0;
-	if (Damage > 0.f || Slow > 0.f) Hits = Horde->ApplyAreaDamage(Center, Radius, Damage, R, Slow);
+	if (Damage > 0.f || Slow > 0.f)
+	{
+		const FSQPrimeScope PrimeScope(Horde); // co-op combos: what an E / R hits is primed for a teammate to burst
+		Hits = Horde->ApplyAreaDamage(Center, Radius, Damage, R, Slow);
+	}
 	ApplyControl(C, Center, Radius, Effects, EffTime, EffValue, KnockDir);
 	if (Damage > 0.f && Hits > 0) AddAreaPops(Center, Radius, Damage, C.Crit, 6);
 	if ((Effects & SQAbilityFx::Lifesteal) && Hits > 0)
@@ -786,7 +790,11 @@ void USQAbilityComponent::LineHit(const FCast& C, const FVector2D& From)
 	const USQData* D = USQData::Get(this);
 	const FVector2D End = From + C.Dir * C.Range;
 	const float Slow = (C.Effects & SQAbilityFx::Slow) ? C.EffectTime : 0.f;
-	const int32 Hits = Horde->ApplyLineDamage(From, End, FMath::Max(20.f, C.Width), C.Damage, R, Slow);
+	int32 Hits = 0;
+	{
+		const FSQPrimeScope PrimeScope(Horde); // co-op combos
+		Hits = Horde->ApplyLineDamage(From, End, FMath::Max(20.f, C.Width), C.Damage, R, Slow);
+	}
 	const float MaxBody = SQAbTune(D, TEXT("AbilityKnockMaxRadius"), 75.f);
 	// Circles along the line for the control effects (Pull drags back toward the caster)
 	for (int32 SegIdx = 1; SegIdx <= 3; ++SegIdx)
@@ -1143,6 +1151,8 @@ float USQAbilityComponent::GetOutgoingDamageMult() const
 	Mult *= 1.f + Empower;
 	const FSQKitDef* Kit = GetKit();
 	const ASQCharacter* R = GetReaper();
+	// Close Ranks (Nov 23 2026): reapers fighting side by side hit a little harder (solo counts as one ally)
+	if (R && R->SquadNear > 0) Mult *= 1.f + SQAbTune(USQData::Get(this), TEXT("SquadAuraDamage"), 0.04f) * static_cast<float>(R->SquadNear);
 	if (Kit && R)
 	{
 		if (Kit->PassiveId == TEXT("Collections"))
@@ -1177,7 +1187,9 @@ float USQAbilityComponent::GetIncomingDamageMult() const
 	{
 		if (B.Type == SQAbilityFx::Fortify) Fortify = FMath::Max(Fortify, B.Value);
 	}
-	return FMath::Max(0.2f, (1.f - FMath::Clamp(BestBulwark, 0.f, 0.6f)) * (1.f - FMath::Clamp(Fortify, 0.f, 0.6f)));
+	// Close Ranks: and take a little less
+	const float RanksArmor = FMath::Clamp(SQAbTune(USQData::Get(this), TEXT("SquadAuraArmor"), 0.03f) * static_cast<float>(Me->SquadNear), 0.f, 0.3f);
+	return FMath::Max(0.2f, (1.f - FMath::Clamp(BestBulwark, 0.f, 0.6f)) * (1.f - FMath::Clamp(Fortify, 0.f, 0.6f)) * (1.f - RanksArmor));
 }
 
 float USQAbilityComponent::GetMoveSpeedMult() const

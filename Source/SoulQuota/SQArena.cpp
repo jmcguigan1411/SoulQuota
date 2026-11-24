@@ -4115,7 +4115,7 @@ void ASQArena::BuildIceOverlay()
 				AddIceVert(CX + FMath::Cos(A) * RingR, CY + FMath::Sin(A) * RingR);
 			}
 		}
-		auto RingVert = [Centre, Segs](int32 Ring, int32 s) { return Centre + 1 + (Ring - 1) * Segs + (s % Segs); };
+		auto RingVert = [Centre](int32 Ring, int32 s) { return Centre + 1 + (Ring - 1) * Segs + (s % Segs); };
 		// Angles grow counter-clockwise (+X right / +Y up), so the upward-facing (clockwise) order is centre -> s+1 -> s
 		for (int32 s = 0; s < Segs; ++s)
 		{

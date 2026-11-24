@@ -65,6 +65,9 @@ namespace
 		{ TEXT("Ramp"), TEXT("E"), TEXT("E is unlocked! It aims itself. R needs level 6 and full souls.") },
 		{ TEXT("Miniboss"), TEXT(""), TEXT("A miniboss! Take it down for gold for the whole crew."), true },
 		{ TEXT("Pinned"), TEXT("SHIFT"), TEXT("Boxed in? SHIFT (or right-click) dashes through the crowd."), true },
+		{ TEXT("Ghost"), TEXT("F"), TEXT("Down, not out! Drift to the crew, press F to haunt a big foe, and keep gathering XP.") },
+		{ TEXT("Ping"), TEXT("M-CLICK"), TEXT("Tap the mouse wheel to ping a spot. Hold it for Help, Lantern, Chest, Danger, Thanks.") },
+		{ TEXT("Combo"), TEXT("Q"), TEXT("COMBO! One reaper's ability primes foes; a teammate's hit makes them burst.") },
 	};
 	static_assert(UE_ARRAY_COUNT(SQTutTips) == static_cast<SIZE_T>(ESQTip::Count), "One tip text per ESQTip");
 
@@ -461,6 +464,9 @@ void USQTutorial::WatchGame(APlayerController* PC)
 	if (PS->Gold > 0) TriggerTip(ESQTip::Gold);
 	if (Me && Me->Carried > 0) TriggerTip(ESQTip::Souls);
 	if (GS->bFinalSwarm) TriggerTip(ESQTip::FinalSwarm);
+	if (Me && Me->bDowned) TriggerTip(ESQTip::Ghost);
+	if (Me && !Me->bDowned && Humans > 1 && GS->Phase == ESQPhase::Night && GS->GetServerWorldTimeSeconds() > 45.0) TriggerTip(ESQTip::Ping);
+	if (Me && Me->ComboFlashCount > 0) TriggerTip(ESQTip::Combo);
 	if (IsValid(GS->Portal) && GS->Portal->bArmed && !GS->Portal->bRung && GS->Phase == ESQPhase::Night) TriggerTip(ESQTip::Bell);
 	if (!GS->MinibossName.IsEmpty() && GS->MinibossHealthFrac > 0.f) TriggerTip(ESQTip::Miniboss);
 	for (TActorIterator<ASQCharacter> It(World); It; ++It)

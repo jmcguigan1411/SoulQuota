@@ -18,6 +18,9 @@ class UMaterialInstanceDynamic;
 struct FSQUpgradeDef;
 struct FSQReaperDef;
 
+/** ASQCharacter::MulticastFX Kind for a squad combo burst (co-op pass, Nov 23 2026): impact + sparks + the COMBO callout */
+inline constexpr uint8 SQFxKindCombo = 77;
+
 /** One floating damage number sent to every machine (cosmetic). Info: bits 0-1 tier (0 normal, 1 crit, 2 huge), bits 2-7 delay in 1/20 s. */
 USTRUCT()
 struct FSQDamagePop
@@ -204,6 +207,27 @@ public:
 	UPROPERTY(Replicated) int32 HarvestSouls = 0;
 	/** Rise from the grave at run start: server time until which this reaper takes no input and no damage */
 	UPROPERTY(Replicated) float RiseLockUntil = -1.f;
+
+	// --- Co-op pass (Nov 23 2026, Docs/CoopFeatures.md) ---
+	/** Close Ranks: standing allies within SquadAuraRange (capped at SquadAuraMax; a lone reaper counts SquadAuraSolo) */
+	UPROPERTY(Replicated) uint8 SquadNear = 0;
+	/** Ghost shift: 0..1 charge of the downed reaper's next Haunt (1 = ready) */
+	UPROPERTY(Replicated) float GhostHauntCharge = 0.f;
+	/** Server: a squad combo this reaper set off burst at At (called by the horde) */
+	void OnSquadCombo(const FVector2D& At, float Radius, float Damage);
+	/** Local (owning view): world time of the last squad combo near this reaper, and how many chained */
+	float ComboFlashAt = -100.f;
+	int32 ComboFlashCount = 0;
+	/** Server: this reaper brought Revived back: a heal, R charge and a burst of haste for both */
+	void RewardRevive(ASQCharacter* Revived);
+	/** Ghost shift: downed and not being carried (floats, gathers XP and gold, haunts) */
+	bool IsGhost() const { return bDowned && CarriedBy == nullptr; }
+	/** Server: Haunt - marks the toughest enemy near the ghost so the crew hits it harder. False while recharging / nothing near. */
+	bool TryGhostHaunt();
+	/** Ping wheel. Kind: 0 Here, 1 Help me, 2 Lantern, 3 Chest, 4 Danger, 5 Thanks. Rate-limited on the server. */
+	UFUNCTION(Server, Unreliable) void ServerPing(uint8 Kind, FVector_NetQuantize Where);
+	/** Slot = the pinging player's index on the server (their ping colour on every machine) */
+	UFUNCTION(NetMulticast, Unreliable) void MulticastPing(uint8 Kind, FVector_NetQuantize Where, uint8 Slot);
 
 	// --- Reap core (Nov 9): harvest revive + rise lock ---
 	/** Souls reaped so far toward reviving this downed reaper (0 when standing) */
@@ -483,6 +507,12 @@ protected:
 	float RegenAccum = 0.f;
 	float BondTimer = 0.f;
 	void ServerTickBonds(float DeltaSeconds);
+	// Co-op pass (server)
+	void ServerTickGhost(float DeltaSeconds);
+	float GhostHauntLeft = 0.f;
+	int32 GhostTrailStageSeen = -1;
+	float PingBudget = 3.f;
+	float LastPingTime = -100.f;
 
 	// --- Passives: the kit passive runs in USQAbilityComponent (Kits.csv) ---
 	/** Damage multiplier for hits on this reaper (Bulwark reapers nearby, Fortify buffs; 1 = none) */

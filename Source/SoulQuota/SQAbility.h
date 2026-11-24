@@ -109,6 +109,8 @@ public:
 	 * the raw amount to every other standing reaper within UltShareRange.
 	 */
 	void AddUltCharge(float RawAmount, bool bShare);
+	/** Server, co-op pass (Nov 23 2026): a timed buff from outside the kit (revive reward haste). Type = one SQAbilityFx ally bit. */
+	void GiveBuff(uint32 Type, float Value, float Seconds) { ReceiveBuff(Type, Value, Seconds); }
 	/** Damage multiplier on top of Stats.DamageMult (passive + buffs). Server (and anywhere for display). */
 	float GetOutgoingDamageMult() const;
 	/** Damage-taken multiplier (Bulwark reapers nearby, Fortify buffs) */

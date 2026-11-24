@@ -70,6 +70,11 @@ public:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
+	// --- Co-op combos (Nov 23 2026, Docs/CoopFeatures.md) ---
+	/** Server: while true every DamageEnemy hit PRIMES its target (an E / R is landing: FSQPrimeScope in USQAbilityComponent).
+	 *  A primed enemy hit by ANOTHER reaper within ComboWindow bursts for ComboBurst x the priming damage in ComboRadius. */
+	bool bPrimeHits = false;
+
 	// --- Server API ---
 	int32 ApplyAreaDamage(const FVector2D& Center, float Radius, float Damage, ASQCharacter* By, float Slow = 0.f);
 	/** Beam weapons: damages every enemy (and the boss) within HalfWidth of the segment From-To, once each. */
@@ -225,6 +230,10 @@ protected:
 		float DamageMult = 1.f;      // miniboss / Final Swarm tiers hit harder
 		uint8 EcoFlags = 0;          // EcoCrowned | EcoMiniboss | EcoSwarm
 		FVector2D Knock = FVector2D::ZeroVector; // ApplyKnockback velocity (cm/s), decays
+		// --- co-op combos (Nov 23 2026) ---
+		float PrimeTime = 0.f;       // seconds left in which another reaper's hit bursts this enemy
+		float PrimeDamage = 0.f;     // the ability damage that primed it
+		uint32 PrimeBy = 0;          // GetUniqueID() of the reaper who primed it
 	};
 
 	struct FPickup
@@ -282,6 +291,22 @@ protected:
 	void RebuildGrid();
 	void DamageEnemy(int32 Index, float Damage, ASQCharacter* By, float Slow, bool bFlash = true);
 	void KillEnemy(int32 Index, ASQCharacter* By);
+	// --- co-op combos: bursts are queued by DamageEnemy and run at the start of the next sim step (no re-entrancy) ---
+	struct FPendingCombo
+	{
+		FVector2D At = FVector2D::ZeroVector;
+		float Damage = 0.f;
+		TWeakObjectPtr<ASQCharacter> By;
+	};
+	TArray<FPendingCombo> PendingCombos;
+	TMap<uint32, float> ComboReadyAt; // per detonating reaper: SimClock when their next combo may fire
+	bool bInCombo = false;
+	bool bComboSolo = false;   // one reaper on the crew: their own weapons burst what their own E / R primed
+	float ComboWindow = 4.f;
+	float ComboBurst = 0.6f;
+	float ComboRadius = 260.f;
+	float ComboCooldown = 0.35f;
+	void RunCombos(const TArray<ASQCharacter*>& Players);
 	void SpawnPickup(uint8 Kind, const FVector2D& Pos, int32 Value);
 	int32 PickEnemyType(int32 Night, float Progress) const;
 	/** Spawn spot at least MinPlayerDist from every reaper (SpawnSpots) and not on a cliff face (flyers may hover over one) */
@@ -671,4 +696,15 @@ protected:
 	UPROPERTY() TArray<TObjectPtr<UObject>> ImpostorAssetRefs;
 	UPROPERTY() TArray<TObjectPtr<UInstancedStaticMeshComponent>> ImpostorISMs; // [Type * ImpostorFrames + Frame], nullptr = none
 	UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> TypeGlowMIDs;      // per type (created on first use)
+};
+
+/** Marks every horde hit inside its lifetime as an ability hit that primes enemies for a squad combo (server). */
+struct FSQPrimeScope
+{
+	explicit FSQPrimeScope(ASQHordeManager* InHorde) : Horde(InHorde) { if (Horde) Horde->bPrimeHits = true; }
+	~FSQPrimeScope() { if (Horde) Horde->bPrimeHits = false; }
+	FSQPrimeScope(const FSQPrimeScope&) = delete;
+	FSQPrimeScope& operator=(const FSQPrimeScope&) = delete;
+private:
+	ASQHordeManager* Horde = nullptr;
 };

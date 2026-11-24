@@ -14,6 +14,9 @@
 #include "Camera/CameraComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "EngineUtils.h"
+#include "Kismet/GameplayStatics.h"
+#include "GameFramework/PlayerState.h"
+#include "GameFramework/GameStateBase.h"
 #include "SQData.h"
 #include "SQGameState.h"
 #include "SQPlayerState.h"
@@ -491,6 +494,8 @@ void ASQCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
 	DOREPLIFETIME(ASQCharacter, bPickBubble);
 	DOREPLIFETIME(ASQCharacter, HarvestSouls);
 	DOREPLIFETIME(ASQCharacter, RiseLockUntil);
+	DOREPLIFETIME(ASQCharacter, SquadNear);
+	DOREPLIFETIME(ASQCharacter, GhostHauntCharge);
 }
 
 void ASQCharacter::BeginPlay()
@@ -683,9 +688,11 @@ void ASQCharacter::Tick(float DeltaSeconds)
 					Revive(D ? D->Tune(TEXT("ReviveFraction"), 0.5f) : 0.5f);
 				}
 			}
+			if (bDowned) ServerTickGhost(DeltaSeconds);
 		}
 		else
 		{
+			GhostTrailStageSeen = -1;
 			if (Stats.Regen > 0.f && Health < Stats.MaxHealth)
 			{
 				Health = FMath::Min(Stats.MaxHealth, Health + Stats.Regen * DeltaSeconds);
@@ -743,6 +750,24 @@ void ASQCharacter::ServerTickBonds(float DeltaSeconds)
 	const USQData* D = USQData::Get(this);
 	if (!D) return;
 	const float Range = D->Tune(TEXT("BondRange"), 900.f);
+
+	// Close Ranks (Nov 23 2026): count the standing allies fighting beside this reaper. A crew of one counts
+	// SquadAuraSolo allies, so playing alone is never weaker for it.
+	{
+		const float AuraRange = D->Tune(TEXT("SquadAuraRange"), 900.f);
+		const int32 AuraMax = FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("SquadAuraMax"), 2.f)), 0, 3);
+		int32 Crew = 0;
+		int32 Near = 0;
+		for (TActorIterator<ASQCharacter> AuraIt(GetWorld()); AuraIt; ++AuraIt)
+		{
+			const ASQCharacter* Mate = *AuraIt;
+			if (Mate == this) continue;
+			Crew++;
+			if (!Mate->bDowned && FVector::Dist2D(Mate->GetActorLocation(), GetActorLocation()) <= AuraRange) Near++;
+		}
+		if (Crew == 0) Near = FMath::RoundToInt(D->Tune(TEXT("SquadAuraSolo"), 1.f));
+		SquadNear = static_cast<uint8>(FMath::Clamp(Near, 0, AuraMax));
+	}
 
 	TArray<FName> NewBonds;
 	for (const FSQBondDef& Bond : D->Bonds)
@@ -1421,6 +1446,7 @@ void ASQCharacter::AddHarvestSouls(int32 Count, ASQCharacter* By)
 	// Co-op Harvest Revive: the crew reaped enough souls around the skull - it stands up where it lies (a carrier lets go first)
 	const USQData* D = USQData::Get(this);
 	Revive(D ? D->Tune(TEXT("ReviveFraction"), 0.5f) : 0.5f);
+	if (By) By->RewardRevive(this);
 	MulticastFX(0, GetActorLocation() - FVector(0.f, 0.f, 85.f), 420.f, FColor(92, 242, 214), 0.6f);
 	if (ASQGameState* GS = GetWorld()->GetGameState<ASQGameState>())
 	{
@@ -1462,7 +1488,11 @@ void ASQCharacter::ReleaseSkull()
 
 void ASQCharacter::ServerInteract_Implementation()
 {
-	if (bDowned) return;
+	if (bDowned)
+	{
+		TryGhostHaunt(); // ghost shift: F haunts the toughest enemy nearby
+		return;
+	}
 	if (CarriedSkull)
 	{
 		ReleaseSkull();
@@ -1516,6 +1546,7 @@ void ASQCharacter::ServerTickSkull(float DeltaSeconds)
 		ASQCharacter* Skull = CarriedSkull;
 		ReleaseSkull();
 		Skull->Revive(D ? D->Tune(TEXT("ReviveFraction"), 0.5f) : 0.5f);
+		RewardRevive(Skull);
 		Skull->SetActorLocation(GetActorLocation() + FVector(120.f, 0.f, 0.f), false, nullptr, ETeleportType::TeleportPhysics);
 		GS->PushAlert(TEXT("Reaper revived at the lantern!"));
 	}
@@ -2110,7 +2141,147 @@ namespace
 void ASQCharacter::MulticastFX_Implementation(uint8 Kind, FVector_NetQuantize Location, float Radius, FColor Color, float Duration)
 {
 	if (GetNetMode() == NM_DedicatedServer) return;
+	if (Kind == SQFxKindCombo)
+	{
+		// Squad combo burst: a layered impact, and the COMBO callout for the local reaper when it went off near them
+		UWorld* ComboWorld = GetWorld();
+		ASQFx::Spawn(ComboWorld, 0, Location, Radius, FLinearColor(Color), Duration);
+		SQFx::Burst(ComboWorld, FVector(Location) + FVector(0.f, 0.f, 60.f), FLinearColor(Color), 14, 620.f, 0.45f, 12.f, -500.f);
+		const APlayerController* LocalPC = ComboWorld ? ComboWorld->GetFirstPlayerController() : nullptr;
+		ASQCharacter* LocalReaper = LocalPC ? Cast<ASQCharacter>(LocalPC->GetPawn()) : nullptr;
+		if (LocalReaper && FVector::Dist2D(LocalReaper->GetActorLocation(), FVector(Location)) <= 2200.f)
+		{
+			const float ComboNow = ComboWorld->GetTimeSeconds();
+			LocalReaper->ComboFlashCount = ComboNow - LocalReaper->ComboFlashAt <= 2.5f ? LocalReaper->ComboFlashCount + 1 : 1;
+			LocalReaper->ComboFlashAt = ComboNow;
+			if (LocalReaper == this) NudgeCamera(0.12f);
+		}
+		return;
+	}
 	ASQFx::Spawn(GetWorld(), Kind, Location, Radius, FLinearColor(Color), Duration);
+}
+
+// ---------------------------------------------------------------- co-op pass (Nov 23 2026, Docs/CoopFeatures.md)
+
+void ASQCharacter::OnSquadCombo(const FVector2D& At, float Radius, float Damage)
+{
+	if (!HasAuthority()) return;
+	const USQData* D = USQData::Get(this);
+	const float AtX = static_cast<float>(At.X);
+	const float AtY = static_cast<float>(At.Y);
+	MulticastFX(SQFxKindCombo, FVector(AtX, AtY, ASQArena::GroundZAt(this, AtX, AtY) + 20.f), Radius, FColor(255, 214, 92), 0.4f);
+	AddDamagePop(At, Damage, 2.f);
+	if (Abilities) Abilities->AddUltCharge(D ? D->Tune(TEXT("ComboUltCharge"), 0.008f) : 0.008f, true);
+	if (ASQPlayerState* ComboPS = GetPlayerState<ASQPlayerState>()) ComboPS->CreditQuest(TEXT("SquadCombos"));
+}
+
+void ASQCharacter::RewardRevive(ASQCharacter* Revived)
+{
+	if (!HasAuthority() || bDowned || !Revived || Revived == this) return;
+	const USQData* D = USQData::Get(this);
+	const float HealFrac = D ? FMath::Clamp(D->Tune(TEXT("ReviveRewardHeal"), 0.15f), 0.f, 1.f) : 0.15f;
+	const float Haste = D ? FMath::Clamp(D->Tune(TEXT("ReviveRewardHaste"), 0.2f), 0.f, 1.f) : 0.2f;
+	const float HasteTime = D ? D->Tune(TEXT("ReviveRewardHasteTime"), 5.f) : 5.f;
+	Health = FMath::Min(Stats.MaxHealth, Health + Stats.MaxHealth * HealFrac);
+	if (Abilities)
+	{
+		Abilities->AddUltCharge(D ? D->Tune(TEXT("ReviveRewardUlt"), 0.1f) : 0.1f, false);
+		if (Haste > 0.f && HasteTime > 0.f) Abilities->GiveBuff(SQAbilityFx::Haste, Haste, HasteTime);
+	}
+	if (Revived->Abilities && Haste > 0.f && HasteTime > 0.f) Revived->Abilities->GiveBuff(SQAbilityFx::Haste, Haste, HasteTime);
+	MulticastFX(0, GetActorLocation() - FVector(0.f, 0.f, 85.f), 240.f, FColor(150, 255, 170), 0.45f);
+	if (ASQPlayerState* SaviourPS = GetPlayerState<ASQPlayerState>()) SaviourPS->CreditQuest(TEXT("Revives"));
+}
+
+void ASQCharacter::ServerTickGhost(float DeltaSeconds)
+{
+	// Ghost shift: something to do while down. The spirit moves at DownedSpeed, gathers XP and gold (horde SimPickups),
+	// recharges Haunt, and stands back up when the next lantern lights.
+	const USQData* D = USQData::Get(this);
+	const ASQGameState* GS = GetWorld() ? GetWorld()->GetGameState<ASQGameState>() : nullptr;
+	if (!D || !GS) return;
+	const float Cooldown = FMath::Max(0.5f, D->Tune(TEXT("GhostHauntCooldown"), 5.f));
+	GhostHauntLeft = FMath::Max(0.f, GhostHauntLeft - DeltaSeconds);
+	GhostHauntCharge = 1.f - FMath::Clamp(GhostHauntLeft / Cooldown, 0.f, 1.f);
+	if (GhostTrailStageSeen < 0) GhostTrailStageSeen = GS->TrailStage;
+	else if (GS->TrailStage != GhostTrailStageSeen)
+	{
+		GhostTrailStageSeen = GS->TrailStage;
+		if (D->Tune(TEXT("GhostLanternRevive"), 1.f) > 0.5f && !IsPardonPending())
+		{
+			Revive(D->Tune(TEXT("ReviveFraction"), 0.5f));
+			MulticastFX(0, GetActorLocation() - FVector(0.f, 0.f, 85.f), 420.f, FColor(255, 214, 120), 0.6f);
+			if (ASQGameState* AlertGS = GetWorld()->GetGameState<ASQGameState>())
+			{
+				const APlayerState* GhostPS = GetPlayerState();
+				AlertGS->PushAlert(FString::Printf(TEXT("%s rises with the new lantern!"), GhostPS ? *GhostPS->GetPlayerName() : TEXT("A reaper")));
+			}
+			return;
+		}
+	}
+	// Bots haunt whenever it is ready
+	const ASQPlayerState* GhostState = GetPlayerState<ASQPlayerState>();
+	if (GhostState && GhostState->IsABot() && GhostHauntLeft <= 0.f && !CarriedBy) TryGhostHaunt();
+}
+
+bool ASQCharacter::TryGhostHaunt()
+{
+	if (!HasAuthority() || !bDowned || GhostHauntLeft > 0.f) return false;
+	const USQData* D = USQData::Get(this);
+	const ASQGameState* HauntGS = GetWorld() ? GetWorld()->GetGameState<ASQGameState>() : nullptr;
+	ASQHordeManager* Horde = HauntGS ? HauntGS->Horde.Get() : nullptr;
+	if (!D || !Horde || D->Tune(TEXT("GhostHaunt"), 1.f) <= 0.5f) return false;
+	uint16 MarkedId = 0;
+	FVector2D MarkedPos = FVector2D::ZeroVector;
+	if (!Horde->MarkToughestEnemy(Pos2D(), D->Tune(TEXT("GhostHauntRange"), 1200.f), D->Tune(TEXT("GhostHauntBonus"), 0.2f), D->Tune(TEXT("GhostHauntSeconds"), 5.f), MarkedId, MarkedPos))
+	{
+		return false;
+	}
+	GhostHauntLeft = FMath::Max(0.5f, D->Tune(TEXT("GhostHauntCooldown"), 5.f));
+	GhostHauntCharge = 0.f;
+	const float MarkX = static_cast<float>(MarkedPos.X);
+	const float MarkY = static_cast<float>(MarkedPos.Y);
+	TArray<FVector_NetQuantize> Line;
+	Line.Add(FVector_NetQuantize(GetActorLocation()));
+	Line.Add(FVector_NetQuantize(FVector(MarkX, MarkY, ASQArena::GroundZAt(this, MarkX, MarkY) + 110.f)));
+	MulticastLineFX(Line, FColor(170, 230, 255), 0);
+	return true;
+}
+
+void ASQCharacter::ServerPing_Implementation(uint8 Kind, FVector_NetQuantize Where)
+{
+	// A burst of 3, then one every PingCooldown seconds
+	const USQData* D = USQData::Get(this);
+	const UWorld* PingWorld = GetWorld();
+	if (!PingWorld || Kind > 5 || FVector(Where).ContainsNaN()) return;
+	const float Cooldown = D ? FMath::Max(0.2f, D->Tune(TEXT("PingCooldown"), 1.5f)) : 1.5f;
+	const float PingNow = PingWorld->GetTimeSeconds();
+	PingBudget = FMath::Min(3.f, PingBudget + (PingNow - LastPingTime) / Cooldown);
+	LastPingTime = PingNow;
+	if (PingBudget < 1.f) return;
+	PingBudget -= 1.f;
+	uint8 Slot = 0;
+	const AGameStateBase* PingGS = PingWorld->GetGameState();
+	const APlayerState* MyPS = GetPlayerState();
+	if (PingGS && MyPS) Slot = static_cast<uint8>(FMath::Clamp(PingGS->PlayerArray.IndexOfByKey(MyPS), 0, 7));
+	MulticastPing(Kind, Where, Slot);
+}
+
+void ASQCharacter::MulticastPing_Implementation(uint8 Kind, FVector_NetQuantize Where, uint8 Slot)
+{
+	if (GetNetMode() == NM_DedicatedServer) return;
+	UWorld* PingWorld = GetWorld();
+	ASQGameState* PingGS = PingWorld ? PingWorld->GetGameState<ASQGameState>() : nullptr;
+	if (!PingGS) return;
+	const APlayerState* PingerPS = GetPlayerState();
+	PingGS->AddLocalPing(Kind, FVector(Where), Slot, PingerPS ? PingerPS->GetPlayerName() : FString());
+	const FLinearColor PingColor = ASQGameState::PingColor(Slot);
+	if (USoundBase* PingSound = SQ::Sound(TEXT("Soul")))
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, PingSound, FVector(Where), 0.8f, Kind == 4 ? 0.6f : (Kind == 1 ? 0.8f : 1.25f));
+	}
+	ASQFx::Spawn(PingWorld, 0, FVector(Where), 180.f, PingColor, 0.5f);
+	SQFx::Burst(PingWorld, FVector(Where) + FVector(0.f, 0.f, 80.f), PingColor, 8, 380.f, 0.5f, 10.f, -300.f);
 }
 
 void ASQCharacter::MulticastLineFX_Implementation(const TArray<FVector_NetQuantize>& Points, FColor Color, uint8 Style)

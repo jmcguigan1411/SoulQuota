@@ -114,6 +114,20 @@ public:
 	UPROPERTY(Replicated) int32 TrailBanked = 0;
 	UPROPERTY(Replicated) int32 TrailQuota = 0;
 
+	// ---------------- Ping wheel (Nov 23 2026, Docs/CoopFeatures.md): local, cosmetic, filled by ASQCharacter::MulticastPing
+	struct FSQPing
+	{
+		FVector Where = FVector::ZeroVector;
+		FString Who;
+		double Time = 0.0;   // world time it arrived
+		uint8 Kind = 0;      // 0 Here, 1 Help me, 2 Lantern, 3 Chest, 4 Danger, 5 Thanks
+		uint8 Slot = 0;
+	};
+	TArray<FSQPing> LocalPings;
+	void AddLocalPing(uint8 Kind, const FVector& Where, uint8 Slot, const FString& Who);
+	static FLinearColor PingColor(uint8 Slot);
+	static const TCHAR* PingLabel(uint8 Kind);
+
 	/** True once every objective is resolved: the Appointment Bell is up (or the stage clock ran out) */
 	UPROPERTY(Replicated) bool bBossReady = false;
 
