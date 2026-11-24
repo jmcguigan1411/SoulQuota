@@ -171,6 +171,9 @@ private:
 	/** A locked reaper waiting for a second Enter / click to confirm spending coins on them (-1 none) */
 	int32 LobbyHireArmed = -1;
 	float LobbyHireArmedAt = -100.f;
+	FString LobbyInviteCode;
+	FString LobbyInviteAddress;
+	float LobbyInviteCopiedAt = -100.f;
 	/** Per tile focus lift (sized to the roster, any number of reapers) */
 	TArray<float> LobbyTileLift;
 
@@ -178,6 +181,8 @@ private:
 	float EndShownAt = -100.f;
 	/** RETRY / CHANGE REAPER hover lifts, and the choice already sent (no double sends) */
 	float EndBtnLift[2] = { 0.f, 0.f };
+	/** End screen: how long RETRY / CHANGE REAPER keys have been held (hold to confirm) */
+	float EndHoldFor[2] = { 0.f, 0.f };
 	bool bEndChoiceSent = false;
 	/** Unlock strip: quests just finished (NEW) then the closest unfinished ones; rebuilt once per end screen */
 	struct FEndUnlock { FString Name; FString Reward; float Frac = 0.f; bool bNew = false; };
@@ -251,6 +256,10 @@ private:
 	/** Clickable rects (design units) drawn by the last DrawHUD (input runs before the next one, so it reads the frame on screen) */
 	TArray<FVector4f> ClickZones;
 	FSQSettingsPanel SettingsPanel;
+public:
+	/** SETTINGS > CONTROLS is waiting for a key: the controller must not treat Esc / P / B as "close" */
+	bool IsCapturingKey() const { return SettingsPanel.IsCapturingKey(); }
+private:
 	bool bSettingsWasOpen = false;
 	float MusicVolumeSeen = -1.f;
 	/** Tutorial anchors found while drawing (design units; < 0 = none this frame) */
@@ -280,6 +289,8 @@ private:
 	/** Top-right objective tracker; returns its bottom */
 	float DrawObjectives(const ASQGameState* GS, const USQData* D);
 	void DrawObjectiveArrows(const ASQGameState* GS, const ASQCharacter* C);
+	/** Co-op pass (Nov 23 2026): pings (marker / edge arrow), the ping wheel, the COMBO callout, the ghost-shift hint, bonds + Close Ranks chips */
+	void DrawCoop(const ASQGameState* GS, const ASQCharacter* C, const class ASQPlayerController* SQPC, const USQData* D);
 
 	// --- Map revamp (Nov 10 2026): minimap (bottom-right, north-up = the fixed camera's screen-up, fog of war) and a
 	// full map on M with district names and a legend. The map image is rasterised once per arena build into a small
@@ -409,7 +420,7 @@ private:
 	void HudShine(float X, float Y, float W, float H, float Period, float Inset, float Offset = 0.f);
 	void HudTilt(const FLinearColor& Colour, float X, float Y, float W, float H, float Deg);
 	void HudBar(float X, float Y, float W, float H, float Fill, float Ghost, const FLinearColor& Colour);
-	float HudKeyCap(const FString& KeyName, float X, float Y, float CapH = 26.f);
+	float HudKeyCap(const FString& KeyNameIn, float X, float Y, float CapH = 26.f);
 	float HudPill(const FString& Label, float X, float Y, const FLinearColor& Fill, const FLinearColor& Ink, float Px, int32 Align = 0);
 	void HudSoulIcon(float CX, float CY, float IconSize, const FLinearColor& Colour, float GlowAmount);
 	void HudGlyph(int32 GlyphKind, float CX, float CY, float GlyphSize, const FLinearColor& Colour);

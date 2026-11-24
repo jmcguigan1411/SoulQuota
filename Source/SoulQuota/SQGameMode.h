@@ -34,6 +34,8 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void PostLogin(APlayerController* NewPlayer) override;
 	virtual void RestartPlayer(AController* NewPlayer) override;
+	virtual FString InitNewPlayer(APlayerController* NewPlayerController, const FUniqueNetIdRepl& UniqueId, const FString& Options, const FString& Portal = TEXT("")) override;
+	virtual void Logout(AController* Exiting) override;
 
 	void OnBossDefeated(ASQBoss* Boss);
 	/** Server: E from PS near a chest (opens it) or the Appointment Bell (starts the ring) */
@@ -104,6 +106,24 @@ protected:
 	bool bBossDefeatedPending = false;
 	int32 SpawnCounter = 0;
 	int32 BotCounter = 0;
+
+	// ---- Platform pass (Nov 2026): reconnect. A human who drops mid-run leaves their reaper on the field under a stand-in
+	// bot (it keeps weapons, level-ups, sack, health; the bot's player state holds gold, augments and pending picks). The
+	// same profile (stable id sent as the travel option SQId) rejoining takes the seat back. See Docs/Platform.md.
+	struct FHeldSeat
+	{
+		FString StableId;
+		TWeakObjectPtr<class ASQBotController> Bot;
+		/** Real time after which the seat is no longer handed back (the bot simply plays on) */
+		double ExpiresReal = 0.0;
+	};
+	TArray<FHeldSeat> HeldSeats;
+	/** The seat that belongs to this controller's stable id, if it is still held (index into HeldSeats, or INDEX_NONE) */
+	int32 FindHeldSeat(const AController* Who) const;
+	/** New late joiner (not a reconnect): bank level-ups and gold near the squad's, so they are useful at once */
+	void GrantLateJoinCatchUp(class ASQPlayerState* PS);
+	/** A notice toast on every human's screen (except one, e.g. the player it is about) */
+	void NoticeAll(const FString& Text, const FString& Sub, const class ASQPlayerState* Except);
 	/** FPlatformTime::Seconds() when the current pick pause began (world time is frozen during it) */
 	double PickPauseStartReal = 0.0;
 

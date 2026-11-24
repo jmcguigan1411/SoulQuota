@@ -58,6 +58,10 @@ public:
 	bool IsPickStripExpanded() const { return bStripExpanded; }
 	/** Co-op strip: the cards can be clicked (top-down: whenever the strip is expanded; TopDownMode 0: Left Alt held) */
 	bool IsPickCursorHeld() const { return bStripCursor; }
+	// Ping wheel (Nov 23 2026): tap middle mouse / left stick click = "Here" where you look; hold = radial (drag or right stick)
+	bool IsPingWheelOpen() const { return bPingWheel; }
+	/** 0 = Here (no drag yet), 1 Help me, 2 Lantern, 3 Chest, 4 Danger, 5 Thanks */
+	uint8 GetPingWheelPick() const;
 	UFUNCTION(Server, Reliable) void ServerSetPickStripOpen(bool bOpen);
 	UFUNCTION(Server, Reliable) void ServerSetAutoPick(bool bOn);
 	/** The run hasn't started (Waiting phase): the reaper grid is up and the cursor is shown */
@@ -135,8 +139,23 @@ public:
 	static constexpr uint8 AbilitySlotE = 2;
 	static constexpr uint8 AbilitySlotR = 3;
 
+	/** Platform pass: maps every action again from the profile's binds and dead zone (after SETTINGS > CONTROLS changes) */
+	void RebuildBindings();
+
 protected:
 	void AddMappingContext();
+	void BuildMappings();
+	/** Gamepad buttons whose meaning depends on the screen: MENU, LB, VIEW, Y, B, RS click, the pad's reap (polled) */
+	void UpdatePadButtons();
+	/** Controller rumble on hits / downs / level-ups */
+	void UpdatePlatformFeel(float DeltaTime);
+	void ClearSlideLatch();
+	bool bSlideLatched = false;
+	float StickRestFor = 0.f;
+	float FeelHealthSeen = -1.f;
+	bool bFeelDownedSeen = false;
+	int32 FeelLevelSeen = 0;
+	double PerfLastRealTime = 0.0;
 	void OnMove(const FInputActionValue& Value);
 	void OnLook(const FInputActionValue& Value);
 	void OnJumpStart();
@@ -207,6 +226,12 @@ protected:
 	bool bStripExpanded = false;
 	bool bStripOpenSent = false;
 	bool bStripCursor = false;
+	/** Ping wheel input (polled: no input action needed) */
+	void UpdatePing(float DeltaTime);
+	bool bPingHeld = false;
+	bool bPingWheel = false;
+	float PingHeldFor = 0.f;
+	FVector2D PingDrag = FVector2D::ZeroVector;
 
 	UPROPERTY() TObjectPtr<UInputMappingContext> Context;
 	UPROPERTY() TObjectPtr<UInputAction> MoveAction;

@@ -19,7 +19,7 @@ DiggerSteal,15,Banked souls a Gravedigger steals if it reaches the lantern
 # --- Player ---
 HitDropFraction,0.25,Share of carried souls dropped when hit
 DashSpeed,1800,
-DownedSpeed,160,Speed while you are a rolling skull
+DownedSpeed,300,Speed while you are down (a ghost). Co-op pass Nov 23 2026: was 160; 300 lets a ghost keep up with the crew (alive reapers run faster)
 ReviveFraction,0.5,Health after a revive
 PardonSeconds,3,Delay before Death's Pardon revives you
 MouseSensitivity,0.35,
@@ -701,3 +701,37 @@ MapWaysideSpacing,2400,Map quality pass (iteration 7): a wayside piece (Biomes.c
 MapWaysideOff,950,Map quality pass: how far back from the lane edge a wayside piece stands (cm)
 MapWaysideMax,16,Map quality pass: most wayside pieces on one map
 MapDistrictVariety,1,Map quality pass (iteration 8): 1 = no two districts alike (landmarks rotate through the map's three; fronts rotate round the ring; every other district is mirrored and swaps in the second signature piece: carousel / diving bell / orrery). 0 = every district the same recipe
+# --- Co-op pass (Nov 23 2026): squad combos, Close Ranks aura, revive rewards, ghost shift, pings, free chests. Docs/CoopFeatures.md ---
+ComboEnabled,1,1 = squad combos on: an ability hit (Q/E/R) PRIMES enemies; a hit from a DIFFERENT reaper within ComboWindow makes each primed enemy burst. 0 = off
+ComboWindow,4,Seconds an enemy stays primed after an ability hit
+ComboBurst,0.6,Burst damage = this x the priming hit's damage; dealt in ComboRadius round the enemy and credited to the detonating reaper
+ComboRadius,260,Burst radius (cm)
+ComboCooldown,0.35,Least seconds between two bursts set off by the same reaper (stops one swing chaining forty bursts)
+ComboSolo,1,1 = with one reaper in the run your own WEAPONS detonate your own ability primes (so solo is not weaker). 0 = combos need two reapers
+ComboUltCharge,0.008,Ultimate charge the whole squad gets per burst (raw; a reaped soul gives about 0.015)
+SquadAuraRange,900,Close Ranks: reapers (bots count) standing within this many cm of you count
+SquadAuraMax,2,Close Ranks: most allies counted
+SquadAuraSolo,1,Close Ranks: stacks you get when you are the only reaper in the run (solo equivalent)
+SquadAuraDamage,0.04,Close Ranks: +damage per stack (0.04 = +4%)
+SquadAuraArmor,0.03,Close Ranks: less damage taken per stack (0.03 = 3%; capped at 30% total)
+ReviveRewardHeal,0.15,Reviving a teammate heals the reviver by this share of max health
+ReviveRewardUlt,0.1,Reviving a teammate gives the reviver this much ultimate charge (0.1 = 10% of the bar)
+ReviveRewardHaste,0.2,Reviver AND revived both move this much faster after a revive
+ReviveRewardHasteTime,5,Seconds the revive haste lasts
+GhostCollect,1,1 = a downed reaper (ghost) still gathers XP crystals and gold by drifting over them (never souls). 0 = ghosts gather nothing
+GhostHaunt,1,1 = a ghost can press F to HAUNT: marks the toughest enemy in GhostHauntRange so everyone hits it harder. Bots haunt on their own
+GhostHauntRange,1200,Haunt: how far the ghost can reach (cm)
+GhostHauntBonus,0.2,Haunt: extra damage the marked enemy takes (0.2 = +20%)
+GhostHauntSeconds,5,Haunt: how long the mark lasts
+GhostHauntCooldown,5,Haunt: seconds to recharge
+GhostLanternRevive,1,1 = every downed reaper stands back up when the lantern trail moves to its next lantern. 0 = only soul harvest / skull carry / kit revives
+PingCooldown,1.5,Pings: each player holds 3 pings and regains one every this many seconds
+ChestFreeForAll,1,1 = when a FREE chest is opened every other reaper also gets their own roll from it. 0 = opener only. Paid chests are always the buyer's
+PerfAutoDetect,1,Platform pass (Nov 2026): 1 = on a profile's first launch run Unreal's hardware benchmark once and pick the graphics preset from it. 0 = start on HIGH
+PerfTargetFps,55,Quality governor (SETTINGS > GRAPHICS > Auto quality): the frame rate it defends. Under it for 1.5 s it sheds effect density and animated-enemy radius; with headroom it restores them
+PerfFxFloor,0.45,Quality governor: lowest multiplier on spark / effect counts when fully shedding (1 = never shed)
+PerfHordeFloor,0.6,Quality governor: lowest multiplier on the radius inside which enemies are fully animated (beyond it they are impostors)
+ReconnectGraceSeconds,300,Co-op: a player who drops mid-run leaves their reaper under a stand-in bot; the same profile rejoining within this many seconds takes it back with everything kept. 0 = the reaper leaves with the player
+LateJoinCatchUp,1,Co-op: 1 = a new player joining mid-run banks catch-up level-up picks and the squad's average gold. 0 = they start from nothing
+LateJoinLevelShare,0.8,Co-op: share of the team's level-ups a mid-run joiner banks (1 = all of them)
+SessionAdvertise,1,Co-op: a hosted lobby advertises itself to the session service (LAN beacon today; Steam lobby after the config switch). 0 = direct IP / invite code only

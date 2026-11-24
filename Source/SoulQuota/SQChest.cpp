@@ -1,5 +1,6 @@
 // Copyright 2026 Jack McGuigan. All rights reserved.
 #include "SQChest.h"
+#include "SQInput.h"
 #include "SQFxRecipe.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -93,7 +94,7 @@ void ASQChest::ApplyLook()
 	Halo->SetRelativeScale3D(FVector(1.05f, 1.05f, 0.02f));
 	if (Cue)
 	{
-		Cue->Setup(bFree ? ESQCueKind::FreeChest : ESQCueKind::Chest, 115.f, 125.f, bFree ? TEXT("FREE CHEST  [F]") : TEXT("CHEST  [F]"));
+		Cue->Setup(bFree ? ESQCueKind::FreeChest : ESQCueKind::Chest, 115.f, 125.f, *SQInput::TranslateInline(bFree ? TEXT("FREE CHEST  [F]") : TEXT("CHEST  [F]")));
 		Cue->SetUsed(bOpened);
 	}
 }
@@ -172,6 +173,17 @@ bool ASQChest::TryOpen(ASQPlayerState* Opener)
 	ApplyLook();
 	SetLifeSpan(3.f);
 	GrantChestRoll(Opener, bFree, bKeyOpen);
+	// Personal loot (Nov 23 2026): a FREE chest pays every reaper on the crew a roll of their own, so nobody races for it.
+	// Paid chests stay personal (your purse, your price; the map already places more of them per extra reaper).
+	const USQData* ShareData = USQData::Get(this);
+	if (bFree && GS && (!ShareData || ShareData->Tune(TEXT("ChestFreeForAll"), 1.f) > 0.5f))
+	{
+		for (APlayerState* EachPS : GS->PlayerArray)
+		{
+			ASQPlayerState* Mate = Cast<ASQPlayerState>(EachPS);
+			if (Mate && Mate != Opener && Mate->GetPawn<ASQCharacter>()) GrantChestRoll(Mate, true, false);
+		}
+	}
 	return true;
 }
 

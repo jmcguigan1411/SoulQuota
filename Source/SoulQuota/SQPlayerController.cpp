@@ -21,6 +21,8 @@
 #include "SQAbility.h"
 #include "SQHUD.h"
 #include "SQReap.h"
+#include "SQInput.h"
+#include "SQPerf.h"
 #include "Engine/World.h"
 
 void ASQPlayerController::BeginPlay()
@@ -35,6 +37,13 @@ void ASQPlayerController::BeginPlay()
 		SetInputMode(FInputModeGameOnly());
 		bShowMouseCursor = false;
 		AddMappingContext();
+		// Graphics options: first-launch hardware check (once per profile), then push the profile to the engine and the
+		// local cosmetic Tuning overrides (SQPerf)
+		if (USQSaveGame* GfxProfile = GetProfile())
+		{
+			SQPerf::AutoDetectOnce(GetWorld(), GfxProfile);
+			SQPerf::Apply(GetWorld(), GfxProfile);
+		}
 
 		// Use the reaper picked in the main menu (after the player state has replicated)
 		FTimerHandle PreferredTimer;
@@ -108,100 +117,9 @@ void ASQPlayerController::SetupInputComponent()
 	// P must also close the overlay while the solo game is paused
 	SettingsAction->bTriggerWhenPaused = true;
 
-	// WASD -> 2D axis (W/S on Y via swizzle, A/S negated)
-	Context->MapKey(MoveAction, EKeys::D);
-	{
-		FEnhancedActionKeyMapping& M = Context->MapKey(MoveAction, EKeys::A);
-		M.Modifiers.Add(NewObject<UInputModifierNegate>(this));
-	}
-	{
-		FEnhancedActionKeyMapping& M = Context->MapKey(MoveAction, EKeys::W);
-		M.Modifiers.Add(NewObject<UInputModifierSwizzleAxis>(this));
-	}
-	{
-		FEnhancedActionKeyMapping& M = Context->MapKey(MoveAction, EKeys::S);
-		M.Modifiers.Add(NewObject<UInputModifierSwizzleAxis>(this));
-		M.Modifiers.Add(NewObject<UInputModifierNegate>(this));
-	}
-	Context->MapKey(MoveAction, EKeys::Gamepad_Left2D);
-
+	BuildMappings();
 	const USQData* BindData = USQData::Get(this);
 	const bool bChaseJump = !BindData || BindData->Tune(TEXT("ChaseJump"), 1.f) >= 0.5f;
-	if (bTopDownInput)
-	{
-		// Chase camera (Nov 12 2026): MOUSE / right stick look, SPACE jump, SHIFT / R-click dash, CTRL / C slide, L-click = Reap,
-		// F = interact, E / R = abilities (R through ReadyAction, see OnReady), P = settings, wheel = camera distance, Home = reset camera.
-		Context->MapKey(LookAction, EKeys::Mouse2D);
-		{
-			FEnhancedActionKeyMapping& StickMap = Context->MapKey(AimStickAction, EKeys::Gamepad_Right2D);
-			UInputModifierDeadZone* StickDeadZone = NewObject<UInputModifierDeadZone>(this);
-			StickDeadZone->LowerThreshold = 0.2f;
-			StickMap.Modifiers.Add(StickDeadZone);
-		}
-		Context->MapKey(ZoomAction, EKeys::MouseWheelAxis);
-		if (bChaseJump)
-		{
-			Context->MapKey(JumpAction, EKeys::SpaceBar);
-			Context->MapKey(JumpAction, EKeys::Gamepad_FaceButton_Bottom);
-			Context->MapKey(SlideAction, EKeys::C);
-			Context->MapKey(SlideAction, EKeys::LeftControl);
-			Context->MapKey(SlideAction, EKeys::Gamepad_RightThumbstick);
-		}
-		else
-		{
-			Context->MapKey(DashAction, EKeys::SpaceBar);
-			Context->MapKey(DashAction, EKeys::Gamepad_FaceButton_Bottom);
-		}
-		Context->MapKey(DashAction, EKeys::LeftShift);
-		Context->MapKey(DashAction, EKeys::Gamepad_RightShoulder);
-		Context->MapKey(InteractAction, EKeys::F);
-		Context->MapKey(InteractAction, EKeys::Gamepad_FaceButton_Left);
-		Context->MapKey(AbilityEAction, EKeys::E);
-		Context->MapKey(AbilityEAction, EKeys::Gamepad_LeftTrigger);
-		Context->MapKey(AbilityRPadAction, EKeys::Gamepad_RightTrigger);
-		Context->MapKey(ReapAction, EKeys::LeftMouseButton);
-		Context->MapKey(DashMouseAction, EKeys::RightMouseButton);
-		Context->MapKey(ResetCameraAction, EKeys::Home);
-	}
-	else
-	{
-		// TopDownMode 0 (reference): the old 3rd-person controls
-		Context->MapKey(LookAction, EKeys::Mouse2D);
-		Context->MapKey(LookAction, EKeys::Gamepad_Right2D);
-		Context->MapKey(JumpAction, EKeys::SpaceBar);
-		Context->MapKey(JumpAction, EKeys::Gamepad_FaceButton_Bottom);
-		Context->MapKey(DashAction, EKeys::LeftShift);
-		Context->MapKey(DashAction, EKeys::Gamepad_RightShoulder);
-		Context->MapKey(SlideAction, EKeys::C);
-		Context->MapKey(SlideAction, EKeys::LeftControl);
-		Context->MapKey(SlideAction, EKeys::Gamepad_LeftTrigger);
-		Context->MapKey(InteractAction, EKeys::E);
-		Context->MapKey(InteractAction, EKeys::Gamepad_FaceButton_Left);
-	}
-	Context->MapKey(Choose1Action, EKeys::One);
-	Context->MapKey(Choose1Action, EKeys::Gamepad_DPad_Left);
-	Context->MapKey(Choose2Action, EKeys::Two);
-	Context->MapKey(Choose2Action, EKeys::Gamepad_DPad_Up);
-	Context->MapKey(Choose3Action, EKeys::Three);
-	Context->MapKey(Choose3Action, EKeys::Gamepad_DPad_Right);
-	Context->MapKey(Choose4Action, EKeys::Four);
-	Context->MapKey(Choose4Action, EKeys::Gamepad_DPad_Down);
-	Context->MapKey(ReadyAction, EKeys::R);
-	Context->MapKey(Choose5Action, EKeys::Five);
-	Context->MapKey(Choose6Action, EKeys::Six);
-	Context->MapKey(Choose7Action, EKeys::Seven);
-	Context->MapKey(Choose8Action, EKeys::Eight);
-	Context->MapKey(Choose9Action, EKeys::Nine);
-	Context->MapKey(BiomeAction, EKeys::B);
-	Context->MapKey(BiomeAction, EKeys::Gamepad_LeftShoulder);
-	Context->MapKey(EndlessAction, EKeys::O);
-	Context->MapKey(EndlessAction, EKeys::Gamepad_Special_Left);
-	Context->MapKey(ReadyAction, EKeys::Gamepad_Special_Right);
-	Context->MapKey(RerollAction, EKeys::Q);
-	Context->MapKey(RerollAction, EKeys::Gamepad_FaceButton_Top);
-	Context->MapKey(SkipAction, EKeys::X);
-	Context->MapKey(SkipAction, EKeys::Gamepad_FaceButton_Right);
-	Context->MapKey(SettingsAction, EKeys::P);
 
 	if (UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(InputComponent))
 	{
@@ -261,6 +179,189 @@ void ASQPlayerController::SetupInputComponent()
 	AddMappingContext();
 }
 
+void ASQPlayerController::BuildMappings()
+{
+	// Platform pass (Nov 23 2026): every rebindable action maps through SQInput::Key (profile rebinds, else the defaults), so
+	// RebuildBindings() makes a rebind live. Movement, the camera, the card keys and the second keys (C slide, right-click dash) are fixed.
+	// Gamepad buttons that only mean something outside a fight (LB biome, VIEW endless, MENU ready / settings, Y reroll, B skip)
+	// and the pad's reap / map are polled in UpdatePadButtons, so no gamepad button is ever mapped to two actions here.
+	if (!Context) return;
+	Context->UnmapAll();
+	const USQSaveGame* BindSave = GetProfile();
+	const float DeadZone = BindSave ? FMath::Clamp(BindSave->StickDeadZone, SQSettings::DeadMin, SQSettings::DeadMax) : 0.2f;
+
+	// WASD -> 2D axis (W/S on Y via swizzle, A/S negated)
+	Context->MapKey(MoveAction, EKeys::D);
+	{
+		FEnhancedActionKeyMapping& M = Context->MapKey(MoveAction, EKeys::A);
+		M.Modifiers.Add(NewObject<UInputModifierNegate>(this));
+	}
+	{
+		FEnhancedActionKeyMapping& M = Context->MapKey(MoveAction, EKeys::W);
+		M.Modifiers.Add(NewObject<UInputModifierSwizzleAxis>(this));
+	}
+	{
+		FEnhancedActionKeyMapping& M = Context->MapKey(MoveAction, EKeys::S);
+		M.Modifiers.Add(NewObject<UInputModifierSwizzleAxis>(this));
+		M.Modifiers.Add(NewObject<UInputModifierNegate>(this));
+	}
+	{
+		FEnhancedActionKeyMapping& MoveStick = Context->MapKey(MoveAction, EKeys::Gamepad_Left2D);
+		UInputModifierDeadZone* MoveDeadZone = NewObject<UInputModifierDeadZone>(this);
+		MoveDeadZone->LowerThreshold = DeadZone;
+		MoveStick.Modifiers.Add(MoveDeadZone);
+	}
+
+	const USQData* BindData = USQData::Get(this);
+	const bool bChaseJump = !BindData || BindData->Tune(TEXT("ChaseJump"), 1.f) >= 0.5f;
+	auto MapBoth = [this](UInputAction* Action, SQInput::EAct Act)
+	{
+		Context->MapKey(Action, SQInput::Key(Act, false));
+		Context->MapKey(Action, SQInput::Key(Act, true));
+	};
+	if (bTopDownInput)
+	{
+		// Chase camera (Nov 12 2026): MOUSE / right stick look, SPACE jump, SHIFT / R-click dash, CTRL / C slide, L-click = Reap,
+		// F = interact, E / R = abilities (R through ReadyAction, see OnReady), P = settings, wheel = camera distance, Home = reset camera.
+		Context->MapKey(LookAction, EKeys::Mouse2D);
+		{
+			FEnhancedActionKeyMapping& StickMap = Context->MapKey(AimStickAction, EKeys::Gamepad_Right2D);
+			UInputModifierDeadZone* StickDeadZone = NewObject<UInputModifierDeadZone>(this);
+			StickDeadZone->LowerThreshold = DeadZone;
+			StickMap.Modifiers.Add(StickDeadZone);
+		}
+		Context->MapKey(ZoomAction, EKeys::MouseWheelAxis);
+		if (bChaseJump)
+		{
+			MapBoth(JumpAction, SQInput::EAct::Jump);
+			MapBoth(SlideAction, SQInput::EAct::Slide);
+			Context->MapKey(SlideAction, EKeys::C);
+		}
+		else
+		{
+			Context->MapKey(DashAction, SQInput::Key(SQInput::EAct::Jump, false));
+			Context->MapKey(DashAction, SQInput::Key(SQInput::EAct::Jump, true));
+		}
+		MapBoth(DashAction, SQInput::EAct::Dash);
+		MapBoth(InteractAction, SQInput::EAct::Interact);
+		MapBoth(AbilityEAction, SQInput::EAct::AbilityE);
+		Context->MapKey(AbilityRPadAction, SQInput::Key(SQInput::EAct::AbilityR, true));
+		Context->MapKey(ReapAction, SQInput::Key(SQInput::EAct::Reap, false));
+		Context->MapKey(DashMouseAction, EKeys::RightMouseButton);
+		Context->MapKey(ResetCameraAction, EKeys::Home);
+	}
+	else
+	{
+		// TopDownMode 0 (reference): the old 3rd-person controls
+		Context->MapKey(LookAction, EKeys::Mouse2D);
+		Context->MapKey(LookAction, EKeys::Gamepad_Right2D);
+		Context->MapKey(JumpAction, EKeys::SpaceBar);
+		Context->MapKey(JumpAction, EKeys::Gamepad_FaceButton_Bottom);
+		Context->MapKey(DashAction, EKeys::LeftShift);
+		Context->MapKey(DashAction, EKeys::Gamepad_RightShoulder);
+		Context->MapKey(SlideAction, EKeys::C);
+		Context->MapKey(SlideAction, EKeys::LeftControl);
+		Context->MapKey(SlideAction, EKeys::Gamepad_LeftTrigger);
+		Context->MapKey(InteractAction, EKeys::E);
+		Context->MapKey(InteractAction, EKeys::Gamepad_FaceButton_Left);
+	}
+	Context->MapKey(Choose1Action, EKeys::One);
+	Context->MapKey(Choose1Action, EKeys::Gamepad_DPad_Left);
+	Context->MapKey(Choose2Action, EKeys::Two);
+	Context->MapKey(Choose2Action, EKeys::Gamepad_DPad_Up);
+	Context->MapKey(Choose3Action, EKeys::Three);
+	Context->MapKey(Choose3Action, EKeys::Gamepad_DPad_Right);
+	Context->MapKey(Choose4Action, EKeys::Four);
+	Context->MapKey(Choose4Action, EKeys::Gamepad_DPad_Down);
+	// Ready (lobby / Death's Office) shares the ultimate's key: R by default
+	Context->MapKey(ReadyAction, bTopDownInput ? SQInput::Key(SQInput::EAct::AbilityR, false) : FKey(EKeys::R));
+	Context->MapKey(Choose5Action, EKeys::Five);
+	Context->MapKey(Choose6Action, EKeys::Six);
+	Context->MapKey(Choose7Action, EKeys::Seven);
+	Context->MapKey(Choose8Action, EKeys::Eight);
+	Context->MapKey(Choose9Action, EKeys::Nine);
+	Context->MapKey(BiomeAction, EKeys::B);
+	Context->MapKey(EndlessAction, EKeys::O);
+	Context->MapKey(RerollAction, EKeys::Q);
+	Context->MapKey(SkipAction, EKeys::X);
+	Context->MapKey(SettingsAction, SQInput::Key(SQInput::EAct::Settings, false));
+}
+
+void ASQPlayerController::RebuildBindings()
+{
+	if (!IsLocalController()) return;
+	BuildMappings();
+	AddMappingContext();
+	FlushPressedKeys(); // nothing stays "held" across the change
+	bSlideLatched = false;
+}
+
+void ASQPlayerController::UpdatePadButtons()
+{
+	// Gamepad buttons whose meaning depends on the screen (see BuildMappings). Polled, so they also work while the solo game is paused.
+	const ASQHUD* PadHud = Cast<ASQHUD>(GetHUD());
+	if (PadHud && PadHud->IsCapturingKey()) return; // SETTINGS > CONTROLS is waiting for a button
+	const UWorld* PadWorld = GetWorld();
+	const ASQGameState* PadGS = PadWorld ? PadWorld->GetGameState<ASQGameState>() : nullptr;
+	if (!PadGS) return;
+	const bool bFight = PadGS->Phase == ESQPhase::Night || PadGS->Phase == ESQPhase::Boss;
+	const bool bPreRun = PadGS->Phase == ESQPhase::Waiting || PadGS->Phase == ESQPhase::Shop;
+	const FKey PadSettings = SQInput::Key(SQInput::EAct::Settings, true);
+	if (bSettingsOpen)
+	{
+		// B closes it from the panel (FSQSettingsPanel, bBack); MENU closes it too
+		if (WasInputKeyJustPressed(PadSettings)) SetSettingsOpen(false);
+		return;
+	}
+	if (bPreRun)
+	{
+		// Lobby / Death's Office: MENU = ready, LB = biome, VIEW = endless (host), RS click = settings
+		if (WasInputKeyJustPressed(EKeys::Gamepad_Special_Right)) OnReady();
+		if (WasInputKeyJustPressed(EKeys::Gamepad_LeftShoulder)) OnBiome();
+		if (WasInputKeyJustPressed(EKeys::Gamepad_Special_Left)) OnEndless();
+		if (WasInputKeyJustPressed(EKeys::Gamepad_RightThumbstick)) SetSettingsOpen(true);
+		return;
+	}
+	if (IsPicking() && (IsSoloPick() || bStripExpanded))
+	{
+		// level-up cards: Y = reroll, B = skip (d-pad picks, see the Choose actions)
+		if (WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Top)) OnReroll();
+		if (WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Right)) OnSkip();
+		if (IsSoloPick()) return;
+	}
+	if (WasInputKeyJustPressed(PadSettings)) SetSettingsOpen(true);
+	if (bFight && bTopDownInput && WasInputKeyJustPressed(SQInput::Key(SQInput::EAct::Reap, true))) OnReap();
+}
+
+void ASQPlayerController::UpdatePlatformFeel(float DeltaTime)
+{
+	// Rumble (gamepad only, SETTINGS > Controller vibration): taking a hit, going down, a level-up
+	const ASQCharacter* FeelPawn = GetPawn<ASQCharacter>();
+	if (FeelPawn)
+	{
+		const float HealthNow = FeelPawn->Health;
+		if (FeelHealthSeen >= 0.f && HealthNow < FeelHealthSeen - 0.5f && !FeelPawn->IsFrozenForLobby())
+		{
+			const float MaxHealth = FMath::Max(1.f, FeelPawn->Stats.MaxHealth);
+			SQInput::Rumble(this, FMath::Clamp(0.25f + 2.5f * (FeelHealthSeen - HealthNow) / MaxHealth, 0.25f, 1.f), 0.18f);
+		}
+		FeelHealthSeen = HealthNow;
+		if (FeelPawn->bDowned && !bFeelDownedSeen) SQInput::Rumble(this, 1.f, 0.6f);
+		bFeelDownedSeen = FeelPawn->bDowned;
+	}
+	else
+	{
+		FeelHealthSeen = -1.f;
+		bFeelDownedSeen = false;
+	}
+	if (const ASQGameState* FeelGS = GetWorld() ? GetWorld()->GetGameState<ASQGameState>() : nullptr)
+	{
+		if (FeelLevelSeen > 0 && FeelGS->TeamLevel > FeelLevelSeen) SQInput::Rumble(this, 0.5f, 0.3f);
+		FeelLevelSeen = FeelGS->TeamLevel;
+	}
+	(void)DeltaTime;
+}
+
 void ASQPlayerController::AddMappingContext()
 {
 	if (!Context || !IsLocalController()) return;
@@ -300,6 +401,14 @@ void ASQPlayerController::OnLook(const FInputActionValue& Value)
 	if (IsTipCursorHeld()) return; // clicking a tip's x
 
 	const FVector2D V = Value.Get<FVector2D>();
+	if (bPingHeld)
+	{
+		// The ping wheel reads the look input while its button is held (mouse: pixels; stick: -1..1 a frame)
+		PingDrag += V * 4.0;
+		const double DragLen = PingDrag.Size();
+		if (DragLen > 120.0) PingDrag *= 120.0 / DragLen;
+		if (bPingWheel) return;
+	}
 	if (bTopDownInput)
 	{
 		// Chase camera: the mouse orbits it whenever the cursor is hidden (the cursor is up for the lobby, cards, shop, SETTINGS, Alt)
@@ -326,6 +435,7 @@ void ASQPlayerController::OnLook(const FInputActionValue& Value)
 void ASQPlayerController::OnJumpStart()
 {
 	if (IsPicking() && IsSoloPick()) return;
+	ClearSlideLatch();
 	if (ASQCharacter* C = GetPawn<ASQCharacter>()) { if (!C->bDowned && !C->IsFrozenForLobby()) C->Jump(); }
 }
 
@@ -348,6 +458,7 @@ void ASQPlayerController::OnDashMouse()
 void ASQPlayerController::DoDashInput(bool bForceCursor)
 {
 	if (IsPicking() && IsSoloPick()) return;
+	ClearSlideLatch();
 	ASQCharacter* C = GetPawn<ASQCharacter>();
 	if (!C) return;
 	if (!bTopDownInput)
@@ -463,11 +574,28 @@ void ASQPlayerController::OnZoom(const FInputActionValue& Value)
 void ASQPlayerController::OnSlideStart()
 {
 	if (IsPicking() && IsSoloPick()) return;
+	const USQSaveGame* SlideSave = GetProfile();
+	if (SlideSave && SlideSave->bSlideToggle)
+	{
+		// SETTINGS > ACCESS > Slide: TOGGLE. One press starts the slide, the next (or a jump / dash) ends it.
+		bSlideLatched = !bSlideLatched;
+		if (ASQCharacter* C = GetPawn<ASQCharacter>()) C->SetSlideInput(bSlideLatched);
+		return;
+	}
+	bSlideLatched = false;
 	if (ASQCharacter* C = GetPawn<ASQCharacter>()) C->SetSlideInput(true);
 }
 
 void ASQPlayerController::OnSlideStop()
 {
+	if (bSlideLatched) return; // toggled on: the release means nothing
+	if (ASQCharacter* C = GetPawn<ASQCharacter>()) C->SetSlideInput(false);
+}
+
+void ASQPlayerController::ClearSlideLatch()
+{
+	if (!bSlideLatched) return;
+	bSlideLatched = false;
 	if (ASQCharacter* C = GetPawn<ASQCharacter>()) C->SetSlideInput(false);
 }
 
@@ -695,14 +823,29 @@ void ASQPlayerController::PlayerTick(float DeltaTime)
 	{
 		UpdatePickStrip();
 		UpdatePickCursor();
+		UpdatePing(DeltaTime);
 		if (bTopDownInput)
 		{
 			UpdateAimInput(DeltaTime);
 			UpdateTopDownFacing(DeltaTime);
 			UpdateCameraInput(DeltaTime);
 		}
-		// Settings overlay: Esc closes it; the solo pause never outlives it (or a second player joining, or the fight ending)
-		if (bSettingsOpen && WasInputKeyJustPressed(EKeys::Escape)) SetSettingsOpen(false);
+		SQInput::Poll(this);
+		UpdatePadButtons();
+		UpdatePlatformFeel(DeltaTime);
+		if (UWorld* PerfWorld = GetWorld())
+		{
+			// real frame time for the quality governor (not dilated, still counted while the solo game is paused)
+			const double RealNow = PerfWorld->GetRealTimeSeconds();
+			if (PerfLastRealTime > 0.0) SQPerf::GovernorTick(PerfWorld, static_cast<float>(RealNow - PerfLastRealTime));
+			PerfLastRealTime = RealNow;
+		}
+		// Settings overlay: Esc closes it (unless CONTROLS is waiting for a key); the solo pause never outlives it
+		{
+			const ASQHUD* EscHud = Cast<ASQHUD>(GetHUD());
+			const bool bCapturing = EscHud && EscHud->IsCapturingKey();
+			if (bSettingsOpen && !bCapturing && WasInputKeyJustPressed(EKeys::Escape)) SetSettingsOpen(false);
+		}
 		if (bSettingsPausedGame)
 		{
 			const ASQGameState* PauseGS = GetWorld()->GetGameState<ASQGameState>();
@@ -728,6 +871,8 @@ void ASQPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void ASQPlayerController::OnSettingsKey()
 {
+	const ASQHUD* KeyHud = Cast<ASQHUD>(GetHUD());
+	if (KeyHud && KeyHud->IsCapturingKey()) return; // SETTINGS > CONTROLS is waiting for a key (it may be this one)
 	SetSettingsOpen(!bSettingsOpen);
 }
 
@@ -837,8 +982,8 @@ void ASQPlayerController::OnReady()
 		const ASQGameState* ReadyGS = GetWorld()->GetGameState<ASQGameState>();
 		if (ReadyGS && ReadyGS->Phase != ESQPhase::Waiting && ReadyGS->Phase != ESQPhase::Shop)
 		{
-			// Only the R key casts (the gamepad's Start button shares ReadyAction; its ultimate is RT)
-			if (IsInputKeyDown(EKeys::R)) CastAbility(AbilitySlotR);
+			// The ultimate's key (R by default; the gamepad's is RT through AbilityRPadAction, and MENU never reaches here in a fight)
+			if (IsInputKeyDown(SQInput::Key(SQInput::EAct::AbilityR, false))) CastAbility(AbilitySlotR);
 			return;
 		}
 	}
@@ -1155,13 +1300,106 @@ void ASQPlayerController::UpdateAimInput(float DeltaTime)
 		{
 			const USQData* StickData = USQData::Get(this);
 			const USQSaveGame* StickSave = GetProfile();
-			const float TurnRate = StickData ? FMath::Clamp(StickData->Tune(TEXT("ChaseStickTurnRate"), 200.f), 30.f, 720.f) : 200.f;
+			// SETTINGS > Stick sensitivity: 0 = 0.4x .. 0.5 = 1x .. 1 = 1.6x; the response curve is squared so small tilts aim finely
+			const float SensMul = FMath::Lerp(0.4f, 1.6f, StickSave ? FMath::Clamp(StickSave->StickSensitivity, 0.f, 1.f) : 0.5f);
+			const float TurnRate = (StickData ? FMath::Clamp(StickData->Tune(TEXT("ChaseStickTurnRate"), 200.f), 30.f, 720.f) : 200.f) * SensMul;
 			const float InvertY = (StickSave && StickSave->bInvertLookY) ? -1.f : 1.f;
 			const float RealDelta = FMath::Clamp(DeltaTime, 0.f, 0.1f);
-			StickPawn->AddCameraOrbit(static_cast<float>(AimStickRaw.X) * TurnRate * RealDelta, -static_cast<float>(AimStickRaw.Y) * TurnRate * 0.6f * RealDelta * InvertY);
+			const float Tilt = FMath::Clamp(static_cast<float>(AimStickRaw.Size()), 0.f, 1.f);
+			const float Curve = FMath::Lerp(Tilt, Tilt * Tilt, StickData ? FMath::Clamp(StickData->Tune(TEXT("StickCurve"), 0.5f), 0.f, 1.f) : 0.5f) / FMath::Max(0.01f, Tilt);
+			StickPawn->AddCameraOrbit(static_cast<float>(AimStickRaw.X) * Curve * TurnRate * RealDelta,
+				-static_cast<float>(AimStickRaw.Y) * Curve * TurnRate * 0.6f * RealDelta * InvertY);
+		}
+		StickRestFor = 0.f;
+	}
+	else
+	{
+		StickRestFor += FMath::Clamp(DeltaTime, 0.f, 0.1f);
+		// Camera assist (gamepad, SETTINGS > Controller camera assist): after the right stick has rested a moment the camera eases
+		// round behind the way you run, so one thumb can steer. Never while running toward the camera (that would spin it).
+		const USQSaveGame* AssistSave = GetProfile();
+		ASQCharacter* AssistPawn = GetPawn<ASQCharacter>();
+		if (AssistPawn && AssistSave && AssistSave->bCameraAssist && SQInput::UsingPad() && StickRestFor > 0.6f && !bShowMouseCursor && !bSettingsOpen && !bPingWheel)
+		{
+			const FVector Vel = AssistPawn->GetVelocity();
+			if (FVector(Vel.X, Vel.Y, 0.0).SizeSquared() > FMath::Square(220.0))
+			{
+				FVector CamForward = FVector::ForwardVector;
+				FVector CamRight = FVector::RightVector;
+				GetCameraAxes(CamForward, CamRight);
+				const float CamYaw = static_cast<float>(CamForward.Rotation().Yaw);
+				const float MoveYaw = static_cast<float>(FVector(Vel.X, Vel.Y, 0.0).Rotation().Yaw);
+				const float Off = FMath::FindDeltaAngleDegrees(CamYaw, MoveYaw);
+				if (FMath::Abs(Off) > 4.f && FMath::Abs(Off) < 130.f)
+				{
+					const USQData* AssistData = USQData::Get(this);
+					const float Rate = AssistData ? FMath::Clamp(AssistData->Tune(TEXT("CameraAssistRate"), 1.1f), 0.f, 6.f) : 1.1f;
+					AssistPawn->AddCameraOrbit(Off * FMath::Min(1.f, Rate * FMath::Clamp(DeltaTime, 0.f, 0.1f)), 0.f);
+				}
+			}
 		}
 	}
 	AimStickRaw = FVector2D::ZeroVector;
+}
+
+// ---------------------------------------------------------------- ping wheel (co-op pass, Nov 23 2026)
+
+uint8 ASQPlayerController::GetPingWheelPick() const
+{
+	if (PingDrag.SizeSquared() < FMath::Square(28.0)) return 0;
+	// Clockwise from straight up: Help me, Lantern, Chest, Danger, Thanks (72 degrees each)
+	float Angle = FMath::RadiansToDegrees(FMath::Atan2(static_cast<float>(PingDrag.X), static_cast<float>(PingDrag.Y)));
+	if (Angle < -36.f) Angle += 360.f;
+	return static_cast<uint8>(1 + FMath::Clamp(FMath::FloorToInt((Angle + 36.f) / 72.f), 0, 4));
+}
+
+void ASQPlayerController::UpdatePing(float DeltaTime)
+{
+	ASQCharacter* PingPawn = GetPawn<ASQCharacter>();
+	const UWorld* PingWorld = GetWorld();
+	const ASQGameState* PingGS = PingWorld ? PingWorld->GetGameState<ASQGameState>() : nullptr;
+	const bool bFight = PingGS && (PingGS->Phase == ESQPhase::Night || PingGS->Phase == ESQPhase::Boss);
+	if (!PingPawn || !bFight || bSettingsOpen || bShowMouseCursor)
+	{
+		bPingHeld = false;
+		bPingWheel = false;
+		return;
+	}
+	const bool bDown = IsInputKeyDown(SQInput::Key(SQInput::EAct::Ping, false)) || IsInputKeyDown(SQInput::Key(SQInput::EAct::Ping, true));
+	if (bDown)
+	{
+		if (!bPingHeld)
+		{
+			bPingHeld = true;
+			PingHeldFor = 0.f;
+			PingDrag = FVector2D::ZeroVector;
+		}
+		PingHeldFor += DeltaTime;
+		if (PingHeldFor >= 0.22f) bPingWheel = true;
+		return;
+	}
+	if (!bPingHeld) return;
+	bPingHeld = false;
+	const uint8 Kind = bPingWheel ? GetPingWheelPick() : 0;
+	bPingWheel = false;
+
+	// Where you look: the centre of the screen onto the ground ("Help me" and "Thanks" sit on the reaper)
+	FVector Where = PingPawn->GetActorLocation();
+	if (Kind != 1 && Kind != 5)
+	{
+		FVector ViewLoc = FVector::ZeroVector;
+		FRotator ViewRot = FRotator::ZeroRotator;
+		GetPlayerViewPoint(ViewLoc, ViewRot);
+		const FVector RayDir = ViewRot.Vector();
+		const float FeetZ = static_cast<float>(Where.Z) - PingPawn->GetSimpleCollisionHalfHeight();
+		FVector Hit = Where + FVector(RayDir.X, RayDir.Y, 0.0).GetSafeNormal() * 1200.0;
+		if (RayDir.Z < -0.02) Hit = SQAimMath::GroundHit(PingGS->Arena.Get(), ViewLoc, RayDir, FeetZ);
+		FVector Flat(Hit.X - Where.X, Hit.Y - Where.Y, 0.0);
+		if (Flat.SizeSquared() > FMath::Square(6000.0)) Flat = Flat.GetSafeNormal() * 6000.0;
+		Where = FVector(Where.X + Flat.X, Where.Y + Flat.Y, 0.0);
+		Where.Z = AimGroundZ(static_cast<float>(Where.X), static_cast<float>(Where.Y), FeetZ);
+	}
+	PingPawn->ServerPing(Kind, Where);
 }
 
 bool ASQPlayerController::HasManualAim() const

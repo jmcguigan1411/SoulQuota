@@ -409,6 +409,14 @@ public:
 	void Reload();
 
 	float Tune(FName Key, float Default) const;
+	/** The CSV value, ignoring this machine's graphics overrides */
+	float TuneBase(FName Key, float Default) const;
+	/**
+	 * Platform pass (Nov 23 2026): a LOCAL override of a cosmetic Tuning key (SETTINGS > GRAPHICS, see SQPerf.h). Never use it
+	 * for anything that changes collision, spawning or damage: co-op machines may hold different values.
+	 */
+	void SetLocalTune(FName Key, float Value) { LocalTuning.Add(Key, Value); }
+	void ClearLocalTunes() { LocalTuning.Reset(); }
 	const FSQUpgradeDef* FindUpgrade(FName Id) const;
 	const FSQReaperDef* FindReaper(FName Id) const;
 	/** Kits.csv row of a reaper (nullptr when it has no kit) */
@@ -433,6 +441,8 @@ public:
 	/** Map interactables (Shrines.csv) */
 	TArray<FSQShrineDef> Shrines;
 	TMap<FName, float> Tuning;
+	/** This machine's graphics overrides (SetLocalTune); checked before Tuning */
+	TMap<FName, float> LocalTuning;
 
 	FString LoadErrors;
 };

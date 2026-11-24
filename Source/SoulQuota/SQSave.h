@@ -97,6 +97,49 @@ public:
 	UPROPERTY() FName PendingMission;
 	UPROPERTY() bool bPendingHard = false;
 
+	// --- Platform pass (Nov 23 2026): controller / accessibility / graphics. SQInput.h and SQPerf.h read these.
+	/** Gamepad right stick: 0..1 (0.5 = Tuning ChaseStickTurnRate; 0 = 0.4x, 1 = 2x) */
+	UPROPERTY() float StickSensitivity = 0.5f;
+	/** Gamepad stick dead zone (SQSettings::DeadMin..DeadMax) */
+	UPROPERTY() float StickDeadZone = 0.2f;
+	/** Gamepad: the camera eases round behind the way you run while the right stick rests */
+	UPROPERTY() bool bCameraAssist = true;
+	UPROPERTY() bool bVibration = true;
+	/** Slide: false = hold, true = press to start / press again to stop */
+	UPROPERTY() bool bSlideToggle = false;
+	/** RETRY / leave on the end screen need a held press (stops a mashed button skipping the results) */
+	UPROPERTY() bool bHoldToConfirm = true;
+	/** Whole-HUD scale (SQSettings::HudScaleMin..HudScaleMax) */
+	UPROPERTY() float HudScale = 1.f;
+	/** Colour-blind help: danger zones get a cross-hatch, pings and cues get a shape as well as a colour */
+	UPROPERTY() bool bShapeCues = false;
+	/** Smaller hit flashes and no full-screen flashes */
+	UPROPERTY() bool bReduceFlash = false;
+	/** Rebinds: SQInput action id -> key name (only changed ones are stored; missing = the default) */
+	UPROPERTY() TMap<FName, FName> KeyBinds;
+	UPROPERTY() TMap<FName, FName> PadBinds;
+	/** Graphics: 0 LOW 1 MEDIUM 2 HIGH 3 ULTRA 4 CUSTOM (the rows below were changed by hand) */
+	UPROPERTY() uint8 GfxPreset = 2;
+	/** 0..3 each (LOW..ULTRA) */
+	UPROPERTY() uint8 GfxEffects = 2;
+	UPROPERTY() uint8 GfxHorde = 2;
+	UPROPERTY() uint8 GfxShadows = 2;
+	UPROPERTY() uint8 GfxViewDistance = 2;
+	UPROPERTY() bool bGfxOutlines = true;
+	UPROPERTY() bool bGfxBloom = true;
+	/** Auto quality: sheds effect density and horde detail while the frame time stays over budget */
+	UPROPERTY() bool bGfxGovernor = true;
+	/** Render resolution scale 0.5..1 */
+	UPROPERTY() float ResScale = 1.f;
+	/** Frames per second cap (0 = none) */
+	UPROPERTY() int32 FrameCap = 0;
+	UPROPERTY() bool bVSync = true;
+	UPROPERTY() bool bShowFps = false;
+	/** The first-launch hardware check has run (it picks GfxPreset once) */
+	UPROPERTY() bool bGfxDetected = false;
+	/** Stable id of this profile for reconnecting to a co-op run (made once; not an account, never shown) */
+	UPROPERTY() FString PlayerId;
+
 	/** Settings values back in range (a hand-edited profile can't break the camera) */
 	void SanitiseSettings();
 
@@ -133,7 +176,13 @@ namespace SQSettings
 	constexpr float SensMin = 0.05f;
 	constexpr float SensMax = 1.f;
 	constexpr float SensDefault = 0.35f;
-	constexpr int32 Version = 2;
+	constexpr float DeadMin = 0.05f;
+	constexpr float DeadMax = 0.5f;
+	constexpr float HudScaleMin = 0.8f;
+	constexpr float HudScaleMax = 1.35f;
+	constexpr float ResScaleMin = 0.5f;
+	// 3 = platform pass (Nov 23 2026): graphics / controller / accessibility rows; older profiles get their defaults
+	constexpr int32 Version = 3;
 
 	/** Every SETTINGS value back to its default (profile progress untouched) */
 	void ResetDefaults(USQSaveGame* Save);
@@ -152,6 +201,8 @@ namespace SQSettings
 struct FSQSettingsResult
 {
 	bool bChanged = false;
+	/** A key or button was rebound (or the binds were reset): the controller rebuilds its input mappings */
+	bool bBindsChanged = false;
 	bool bAudioChanged = false;
 	bool bAutoPickChanged = false;
 	bool bClose = false;
@@ -160,7 +211,8 @@ struct FSQSettingsResult
 };
 
 /**
- * The SETTINGS panel (Camera preview, Nov 9): tabs CAMERA / GAMEPLAY / AUDIO / CONTROLS, rows with segmented controls,
+ * The SETTINGS panel (Camera preview, Nov 9; platform pass Nov 23): tabs CAMERA / GAMEPLAY / GRAPHICS / DISPLAY / CONTROLS /
+ * ACCESS / AUDIO, rows with segmented controls (any number of options; long ones cycle with arrows),
  * sliders and toggles, a note and RESET DEFAULTS / DONE. Drawn through the host's painter (SQHUD in a run, SQMenu on its
  * SETTINGS page) so it matches the screen it sits on. Changes write the shared profile at once and apply live.
  * Keys (host fills the painter): Up / Down rows (the tab strip is the row above the first), Left / Right change, Enter toggles, Tab next tab.
@@ -173,13 +225,20 @@ struct FSQSettingsPanel
 	/** Row whose slider is being dragged (-1 none) */
 	int32 Drag = -1;
 	float OpenedAt = -100.f;
-	float TabLift[4] = { 0.f, 0.f, 0.f, 0.f };
+	static constexpr int32 NumTabs = 7;
+	float TabLift[NumTabs] = { 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f };
+	/** CONTROLS tab: the action being rebound (-1 none) and whether it is the gamepad column */
+	int32 RebindAct = -1;
+	bool bRebindPad = false;
+	float RebindSince = 0.f;
+	/** True while the panel waits for a key: the host must not treat Esc / P / B as "close" */
+	bool IsCapturingKey() const { return RebindAct >= 0; }
 	float ResetLift = 0.f;
 	float DoneLift = 0.f;
 	float ReplayLift = 0.f;
 
 	/** Design width / height of the panel */
-	static constexpr float PanelW = 600.f;
+	static constexpr float PanelW = 760.f;
 	static float PanelH();
 	/** Draws at X, Y (top-left). HeaderHint: "open / close" (run) or "back" (menu); Note: the grey line under the rows. bInRun: REPLAY restarts the training now. */
 	FSQSettingsResult Draw(const FSQTutorialPainter& P, UWorld* World, float X, float Y, const FString& HeaderKey, const FString& HeaderHint,

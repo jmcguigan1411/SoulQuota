@@ -8,6 +8,8 @@
 #include "SQData.h"
 #include "SQArt.h"
 #include "SQFxRecipe.h"
+#include "SQPerf.h"
+#include "SQInput.h"
 #include "SQArena.h"
 #include "SQCharacter.h"
 #include "SQAnimInstance.h"
@@ -187,9 +189,12 @@ void ASQFx::Tick(float DeltaSeconds)
 		{
 			// Danger: the fill grows from the middle and reaches the rim exactly at the impact; it brightens as it
 			// grows and flickers through the last quarter
-			const float Fill = Base * FMath::Lerp(0.12f, 1.f, Alpha);
+			// SETTINGS > ACCESS > Shapes as well as colours: danger fills in five ratchet steps (a motion no friendly zone
+			// has), so it reads without the red; Reduce flashes calms the final flicker
+			const float FillAlpha = SQInput::ShapeCues() ? FMath::CeilToFloat(Alpha * 5.f) / 5.f : Alpha;
+			const float Fill = Base * FMath::Lerp(0.12f, 1.f, FillAlpha);
 			SetActorScale3D(FVector(Fill, Fill, 0.01f));
-			const float Flicker = Alpha > 0.75f ? 0.25f * FMath::Abs(FMath::Sin(Elapsed * 30.f)) : 0.f;
+			const float Flicker = (Alpha > 0.75f ? 0.25f * FMath::Abs(FMath::Sin(Elapsed * 30.f)) : 0.f) * SQInput::FlashScale();
 			GlowMat->SetScalarParameterValue(TEXT("Glow"), 0.35f + 0.5f * Alpha + Flicker);
 		}
 		else
@@ -473,7 +478,7 @@ void ASQSparks::Emit(const FVector& Location, const FLinearColor& Color, int32 C
 void ASQSparks::EmitLegacy(const FVector& Location, int32 Bucket, int32 Count, float Speed, float Lifetime, float Size, float Gravity, bool bRing, float Delay)
 {
 	if (Bucket == INDEX_NONE || Count <= 0 || Sparks.Num() == 0) return;
-	const int32 N = FMath::Min(FMath::Max(1, FMath::RoundToInt(static_cast<float>(Count) * FxCountMul)), Sparks.Num());
+	const int32 N = FMath::Min(FMath::Max(1, FMath::RoundToInt(static_cast<float>(Count) * FxCountMul * SQPerf::FxScale())), Sparks.Num());
 	Size *= FxSizeMul;
 	const float StartAngle = FMath::FRandRange(0.f, 2.f * PI);
 	// Impact pop: a burst of 5+ sparks also gets one fat, very short flash at its centre (reads as a "hit" even in a crowd)

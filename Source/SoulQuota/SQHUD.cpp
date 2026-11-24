@@ -22,6 +22,9 @@
 #include "SQFx.h"
 #include "SQGameState.h"
 #include "SQHordeManager.h"
+#include "SQInput.h"
+#include "SQPerf.h"
+#include "SQSession.h"
 #include "SQPlayerController.h"
 #include "SQPlayerState.h"
 #include "SQSave.h"
@@ -399,8 +402,10 @@ void ASQHUD::HudBar(float X, float Y, float W, float H, float Fill, float Ghost,
 	}
 }
 
-float ASQHUD::HudKeyCap(const FString& KeyName, float X, float Y, float CapH)
+float ASQHUD::HudKeyCap(const FString& KeyNameIn, float X, float Y, float CapH)
 {
+	// the cap shows the bound key of the device in use (SQInput): "F" becomes "X" on a gamepad, or whatever it was rebound to
+	const FString KeyName = SQInput::TranslateCap(KeyNameIn);
 	const float Px = CapH * 0.5f;
 	const float KW = FMath::Max(CapH, HudTxtW(KeyName, HudLabelFont(true), Px) + 16.f);
 	HudRound(SQUI::Line, X, Y, KW, CapH, 6.f);
@@ -626,6 +631,13 @@ void ASQHUD::DrawHUD()
 
 	// Authored for 1080p; scale by height, but never narrower than 1440 design units (4:3), so nothing overlaps.
 	UIScale = FMath::Clamp(FMath::Min(Canvas->ClipY / 1080.f, Canvas->ClipX / 1440.f), 0.4f, 4.f);
+	// SETTINGS > ACCESS > HUD size: scales every design unit, but the design width never drops under 1440 (nothing overlaps)
+	if (const USQSaveGame* ScaleSave = USQSaveGame::Load())
+	{
+		const float Wanted = FMath::Clamp(ScaleSave->HudScale, SQSettings::HudScaleMin, SQSettings::HudScaleMax);
+		const float MaxScale = FMath::Max(UIScale, Canvas->ClipX / 1440.f);
+		UIScale = FMath::Clamp(UIScale * Wanted, 0.4f, FMath::Max(0.4f, FMath::Min(4.f, Wanted > 1.f ? MaxScale : 4.f)));
+	}
 	HudVW = Canvas->ClipX / UIScale;
 	HudVH = Canvas->ClipY / UIScale;
 	HudNow = static_cast<float>(World->GetRealTimeSeconds());
@@ -852,6 +864,7 @@ void ASQHUD::DrawHUD()
 			if (!bShop)
 			{
 				DrawObjectiveArrows(GS, C);
+				DrawCoop(GS, C, SQPC, D);
 			}
 			// Map revamp: corner minimap / full map (M) and the district banner
 			DrawMinimap(GS, C, D, bShop);
@@ -1021,9 +1034,19 @@ void ASQHUD::DrawHUD()
 		HudWrap(Err, HudLabelFont(true), 15.f, Margin + 18.f, ErrY + 12.f, ErrW - 36.f, SQUI::Danger, 20.f, 6);
 	}
 
-	// ---- debug stats + controls (small, bottom-right)
+	// ---- FPS counter (SETTINGS > DISPLAY), top-right under the minimap edge
+	{
+		const USQSaveGame* FpsSave = USQSaveGame::Load();
+		if (FpsSave && FpsSave->bShowFps)
+		{
+			HudTxt(FString::Printf(TEXT("%.0f FPS"), SQPerf::SmoothedFps()), HudLabelFont(true), 14.f, HudVW - Margin, 8.f, SQUI::Muted, 2);
+		}
+	}
+
+	// ---- debug stats (development builds only) + controls line (small, bottom-right)
 	if (SQPC && SQPC->bShowStats)
 	{
+#if !UE_BUILD_SHIPPING
 		const float Dt = static_cast<float>(FApp::GetDeltaTime());
 		const float FPS = Dt > 0.f ? 1.f / Dt : 0.f;
 		const int32 Pickups = GS->Horde ? GS->Horde->NumPickups() : 0;
@@ -1031,10 +1054,11 @@ void ASQHUD::DrawHUD()
 		const float StatsY = bLobby ? HudVH - 48.f - 20.f : HudVH - 44.f;
 		HudTxt(FString::Printf(TEXT("FPS %.0f  -  enemies %d (net %d)  -  pickups %d  -  players %d  -  kills %d"),
 			FPS, GS->EnemyCount, NetEnemies, Pickups, GS->PlayerArray.Num(), PS ? PS->Kills : 0), HudLabelFont(false), 12.f, HudVW - Margin, StatsY, SQUI::Disabled, 2);
+#endif
 		const USQSaveGame* HintSave = USQSaveGame::Load();
 		if (!bLobby && !bEnd && (!HintSave || HintSave->bShowKeyHints))
 		{
-			HudTxt(TEXT("WASD move  -  Mouse look  -  Space jump  -  Shift / R-click dash  -  L-click reap  -  E ability  -  R ultimate  -  F interact  -  M map  -  Alt cursor  -  P settings"),
+			HudTxt(SQInput::ControlsLine(),
 				HudLabelFont(false), 12.f, HudVW - Margin, HudVH - 26.f, SQUI::Disabled, 2);
 		}
 	}
@@ -1228,7 +1252,7 @@ void ASQHUD::DrawScreenEdges(const ASQCharacter* C)
 	EdgeA = FMath::Max(EdgeA, C->HitFlash * 0.6f);
 	if (C->HitFlash > 0.f)
 	{
-		HudRect(FLinearColor(0.8f, 0.05f, 0.05f, C->HitFlash * 0.18f), 0.f, 0.f, VW, VH);
+		HudRect(FLinearColor(0.8f, 0.05f, 0.05f, C->HitFlash * 0.18f * SQInput::FlashScale()), 0.f, 0.f, VW, VH);
 	}
 	if (EdgeA <= 0.01f)
 	{
@@ -2358,6 +2382,27 @@ void ASQHUD::DrawLobby(const ASQGameState* GS, const ASQPlayerState* PS, const A
 		HudTxt(TEXT("HIDE TO SEE THE LOBBY"), HudLabelFont(true), 12.f, RightEdge, 41.f, SQUI::Muted, 2, false);
 		const float TabW = HudTxtW(TEXT("TAB"), HudLabelFont(true), 12.f) + 16.f;
 		HudKeyCap(TEXT("TAB"), RightEdge - HideW - 10.f - TabW, 35.f, 24.f);
+		// Platform pass: the host sees what to tell friends (invite code = this address in ten letters); F2 copies it
+		if (GetNetMode() == NM_ListenServer)
+		{
+			if (LobbyInviteCode.IsEmpty() && LobbyInviteAddress.IsEmpty())
+			{
+				const int32 HostPort = GetWorld() ? GetWorld()->URL.Port : 7777;
+				LobbyInviteAddress = SQSession::LocalAddress();
+				LobbyInviteCode = SQSession::InviteCode(LobbyInviteAddress, HostPort);
+				LobbyInviteAddress = LobbyInviteAddress.IsEmpty() ? FString(TEXT("?")) : FString::Printf(TEXT("%s:%d"), *LobbyInviteAddress, HostPort);
+			}
+			const bool bCopied = HudNow - LobbyInviteCopiedAt < 2.f;
+			if (PlayerOwner && PlayerOwner->WasInputKeyJustPressed(EKeys::F2))
+			{
+				SQSession::CopyText(LobbyInviteCode.IsEmpty() ? LobbyInviteAddress : LobbyInviteCode);
+				LobbyInviteCopiedAt = HudNow;
+			}
+			const FString InviteLine = bCopied ? FString(TEXT("COPIED"))
+				: LobbyInviteCode.IsEmpty() ? FString::Printf(TEXT("YOUR ADDRESS  %s   F2 COPIES"), *LobbyInviteAddress)
+				: FString::Printf(TEXT("INVITE CODE  %s   (%s)   F2 COPIES"), *LobbyInviteCode, *LobbyInviteAddress);
+			HudTxt(InviteLine, HudLabelFont(true), 12.f, RightEdge, 64.f, bCopied ? SQUI::Soul : SQUI::Amber, 2, false);
+		}
 		HudRect(SQUI::WithAlpha(SQUI::Line, 0.6f), Margin, TopH - 8.f, HudVW - 2.f * Margin, 1.f);
 	}
 
@@ -3130,7 +3175,20 @@ void ASQHUD::DrawLobbyHints()
 		HintX += HudKeyCap(KeyStr, HintX, BarY + 11.f, 24.f) + 10.f;
 		HintX += HudTxt(LabelStr, HudLabelFont(true), 13.f, HintX, BarY + 15.f, SQUI::Muted, 0, false) + 24.f;
 	}
-	const FString Brand = TEXT("SOUL QUOTA");
+	// Co-op pass: the right end of the bar cycles through the squad Bonds (relic pairs), so the lobby teaches them
+	FString Brand = TEXT("SOUL QUOTA");
+	if (const USQData* BondData = USQData::Get(this))
+	{
+		if (BondData->Bonds.Num() > 0)
+		{
+			const FSQBondDef& Bond = BondData->Bonds[static_cast<int32>(HudNow / 6.f) % BondData->Bonds.Num()];
+			const FSQUpgradeDef* RelicA = BondData->FindUpgrade(Bond.RelicA);
+			const FSQUpgradeDef* RelicB = BondData->FindUpgrade(Bond.RelicB);
+			const FString BondLine = FString::Printf(TEXT("SQUAD BOND  %s: %s + %s on two reapers. %s"), *Bond.Name.ToUpper(),
+				RelicA ? *RelicA->Name : *Bond.RelicA.ToString(), RelicB ? *RelicB->Name : *Bond.RelicB.ToString(), *Bond.Description);
+			if (HintX + HudTxtW(BondLine, HudLabelFont(true), 13.f) < HudVW - X0) Brand = BondLine;
+		}
+	}
 	if (HintX + HudTxtW(Brand, HudLabelFont(true), 13.f) < HudVW - X0)
 	{
 		HudTxt(Brand, HudLabelFont(true), 13.f, HudVW - X0, BarY + 15.f, SQUI::Disabled, 2, false);
@@ -3605,17 +3663,24 @@ void ASQHUD::DrawSettingsOverlay(ASQPlayerController* SQPC)
 
 	FSQTutorialPainter Painter;
 	FillPainter(Painter);
-	Painter.bNavUp = SQPC->WasInputKeyJustPressed(EKeys::Up);
-	Painter.bNavDown = SQPC->WasInputKeyJustPressed(EKeys::Down);
-	Painter.bNavLeft = SQPC->WasInputKeyJustPressed(EKeys::Left);
-	Painter.bNavRight = SQPC->WasInputKeyJustPressed(EKeys::Right);
-	Painter.bConfirm = SQPC->WasInputKeyJustPressed(EKeys::Enter);
-	Painter.bTabNext = SQPC->WasInputKeyJustPressed(EKeys::Tab);
+	{
+		// arrows / d-pad / left stick (with hold-repeat), Enter / A, Tab / RB and LB for tabs, B = back
+		const SQInput::FNav Nav = SQInput::ReadNav(SQPC, static_cast<float>(GetWorld()->GetRealTimeSeconds()));
+		Painter.bNavUp = Nav.bUp;
+		Painter.bNavDown = Nav.bDown;
+		Painter.bNavLeft = Nav.bLeft;
+		Painter.bNavRight = Nav.bRight;
+		Painter.bConfirm = Nav.bConfirm;
+		Painter.bTabNext = Nav.bTabNext;
+		Painter.bTabPrev = Nav.bTabPrev;
+		Painter.bBack = SQPC->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Right);
+		Painter.PC = SQPC;
+	}
 
 	const float PanelX = (HudVW - FSQSettingsPanel::PanelW) * 0.5f;
 	const float PanelY = FMath::Max(24.f, (HudVH - FSQSettingsPanel::PanelH()) * 0.5f);
 	HudAlpha = 1.f;
-	const FSQSettingsResult Result = SettingsPanel.Draw(Painter, GetWorld(), PanelX, PanelY, TEXT("P"), TEXT("open / close"),
+	const FSQSettingsResult Result = SettingsPanel.Draw(Painter, GetWorld(), PanelX, PanelY, SQInput::Label(SQInput::EAct::Settings), TEXT("open / close"),
 		TEXT("Pauses in solo; in co-op it opens over the game."), TEXT("Changes apply live. Hold ALT in a fight to free the cursor."), true);
 	HudAlpha = 1.f;
 	const USQSaveGame* Save = USQSaveGame::Load();
@@ -3625,6 +3690,7 @@ void ASQHUD::DrawSettingsOverlay(ASQPlayerController* SQPC)
 		MusicVolumeSeen = Save->MusicVolume;
 	}
 	if (Result.bAutoPickChanged && Save) SQPC->ServerSetAutoPick(Save->bAutoPickLevelUps);
+	if (Result.bBindsChanged || Result.bChanged) SQPC->RebuildBindings(); // new keys / dead zone are live at once
 	if (Result.bReplayTraining)
 	{
 		const ASQGameState* GS = GetWorld()->GetGameState<ASQGameState>();
@@ -3873,7 +3939,7 @@ void ASQHUD::DrawActionSlot(const FString& KeyName, const FString& IconText, con
 	HudRound(SQUI::WithAlpha(Accent, bReady ? 0.14f : 0.05f), X + 3.f, Y + 3.f, S - 6.f, S * 0.48f, 8.f);
 
 	// key letter (preview), or the ability icon with key hints off
-	const FString Main = bKeyHints ? KeyName : IconText;
+	const FString Main = bKeyHints ? SQInput::TranslateCap(KeyName) : IconText;
 	const float MainPx = HudFitPx(Main, HudHeadFont(), S * 0.34f, S - 14.f);
 	HudTxt(Main, HudHeadFont(), MainPx, X + S * 0.5f, Y + S * 0.42f - 0.62f * MainPx, bReady ? Accent : SQUI::Muted, 1);
 
@@ -4261,6 +4327,110 @@ float ASQHUD::DrawObjectives(const ASQGameState* GS, const USQData* D)
 		CurY += RowH;
 	}
 	return Y + H;
+}
+
+void ASQHUD::DrawCoop(const ASQGameState* GS, const ASQCharacter* C, const ASQPlayerController* SQPC, const USQData* D)
+{
+	const UWorld* CoopWorld = GetWorld();
+	if (!Canvas || !GS || !C || !CoopWorld) return;
+	const double WorldNow = CoopWorld->GetTimeSeconds();
+	const float Left = 60.f, Right = HudVW - 60.f;
+	const float Top = 120.f, Bottom = HudVH - FMath::Max(120.f, BottomReserve + 30.f);
+	const float CentreX = HudVW * 0.5f, CentreY = (Top + Bottom) * 0.5f;
+
+	// ---- Pings: a labelled marker over the spot, or an arrow at the screen edge
+	for (const ASQGameState::FSQPing& Ping : GS->LocalPings)
+	{
+		const float Age = static_cast<float>(WorldNow - Ping.Time);
+		if (Age < 0.f || Age > 8.f) continue;
+		const float Fade = FMath::Clamp((8.f - Age) / 1.5f, 0.f, 1.f);
+		const FLinearColor Col = ASQGameState::PingColor(Ping.Slot);
+		const FVector Screen = Canvas->Project(Ping.Where + FVector(0.0, 0.0, 140.0));
+		const float SX = static_cast<float>(Screen.X) / UIScale, SY = static_cast<float>(Screen.Y) / UIScale;
+		const float Metres = static_cast<float>(FVector::Dist2D(Ping.Where, C->GetActorLocation())) / 100.f;
+		const float Pulse = HudPulse(HudNow + Ping.Slot, 6.f);
+		const FString Label = Ping.Who.IsEmpty() ? FString(ASQGameState::PingLabel(Ping.Kind)) : FString::Printf(TEXT("%s: %s"), *Ping.Who.ToUpper(), ASQGameState::PingLabel(Ping.Kind));
+		if (Screen.Z > 0.f && SX > Left && SX < Right && SY > Top && SY < Bottom)
+		{
+			HudDisc(SQUI::WithAlpha(Col, (0.2f + 0.2f * Pulse) * Fade), SX, SY, 20.f + 4.f * Pulse);
+			HudTilt(SQUI::WithAlpha(SQUI::Midnight, Fade), SX - 9.f, SY - 9.f, 18.f, 18.f, 45.f);
+			HudTilt(SQUI::WithAlpha(Col, Fade), SX - 7.f, SY - 7.f, 14.f, 14.f, 45.f);
+			HudTxt(Label, HudLabelFont(true), 13.f, SX, SY - 34.f, SQUI::WithAlpha(Col, Fade), 1, true);
+			HudTxt(FString::Printf(TEXT("%.0fm"), Metres), HudLabelFont(true), 11.f, SX, SY + 16.f, SQUI::WithAlpha(Col, Fade), 1, true);
+		}
+		else
+		{
+			FVector2D Dir(SX - CentreX, SY - CentreY);
+			if (Screen.Z <= 0.f) Dir = -Dir;
+			if (Dir.IsNearlyZero()) Dir = FVector2D(0.f, -1.f);
+			Dir.Normalize();
+			const float DirX = static_cast<float>(Dir.X), DirY = static_cast<float>(Dir.Y);
+			const float HalfW = (Right - Left) * 0.5f, HalfH = (Bottom - Top) * 0.5f;
+			const float Reach = FMath::Min(HalfW / FMath::Max(0.001f, FMath::Abs(DirX)), HalfH / FMath::Max(0.001f, FMath::Abs(DirY)));
+			const float EX = CentreX + DirX * Reach, EY = CentreY + DirY * Reach;
+			HudDisc(SQUI::WithAlpha(Col, (0.25f + 0.25f * Pulse) * Fade), EX, EY, 18.f + 3.f * Pulse);
+			HudDisc(SQUI::WithAlpha(SQUI::PanelDeep, Fade), EX, EY, 13.f);
+			HudArrow(EX + DirX * 24.f, EY + DirY * 24.f, FMath::RadiansToDegrees(FMath::Atan2(DirY, DirX)), 12.f, SQUI::WithAlpha(Col, Fade));
+			HudTxt(ASQGameState::PingLabel(Ping.Kind), HudLabelFont(true), 11.f, EX, EY + 20.f, SQUI::WithAlpha(Col, Fade), 1, true);
+		}
+	}
+
+	// ---- The ping wheel (hold middle mouse / left stick): five wedges round the centre, the picked one lit
+	if (SQPC && SQPC->IsPingWheelOpen())
+	{
+		const uint8 Pick = SQPC->GetPingWheelPick();
+		const float WX = HudVW * 0.5f, WY = HudVH * 0.5f;
+		HudDisc(FLinearColor(0.f, 0.f, 0.f, 0.45f), WX, WY, 132.f);
+		HudTxt(Pick == 0 ? TEXT("HERE") : TEXT("PING"), HudLabelFont(true), 13.f, WX, WY - 8.f, Pick == 0 ? SQUI::BoneWhite : SQUI::Disabled, 1, true);
+		for (uint8 Kind = 1; Kind <= 5; ++Kind)
+		{
+			const float Angle = FMath::DegreesToRadians(static_cast<float>(Kind - 1) * 72.f); // clockwise from straight up
+			const float OX = WX + FMath::Sin(Angle) * 92.f, OY = WY - FMath::Cos(Angle) * 92.f;
+			const bool bLit = Pick == Kind;
+			HudDisc(bLit ? SQUI::Amber : SQUI::PanelDeep, OX, OY, bLit ? 34.f : 30.f);
+			HudTxt(ASQGameState::PingLabel(Kind), HudLabelFont(true), 11.f, OX, OY - 7.f, bLit ? SQUI::Midnight : SQUI::BoneWhite, 1, !bLit);
+		}
+	}
+
+	// ---- COMBO callout: a squad combo burst near you
+	const float ComboAge = static_cast<float>(WorldNow) - C->ComboFlashAt;
+	if (ComboAge >= 0.f && ComboAge < 1.4f)
+	{
+		const float Pop = 1.f + 0.35f * FMath::Max(0.f, 1.f - ComboAge * 5.f);
+		const float Alpha = FMath::Clamp((1.4f - ComboAge) / 0.4f, 0.f, 1.f);
+		const FString ComboText = C->ComboFlashCount > 1 ? FString::Printf(TEXT("COMBO x%d"), C->ComboFlashCount) : FString(TEXT("COMBO!"));
+		HudTxt(ComboText, HudLabelFont(true), 30.f * Pop, HudVW * 0.5f, HudVH * 0.5f - 150.f - 20.f * ComboAge, SQUI::WithAlpha(SQUI::Gold, Alpha), 1, true);
+	}
+
+	// ---- Ghost shift: what a downed reaper can do
+	if (C->bDowned)
+	{
+		const float GY = HudVH * 0.5f + 110.f;
+		HudTxt(TEXT("GHOST SHIFT"), HudLabelFont(true), 18.f, HudVW * 0.5f, GY, FLinearColor(0.67f, 0.9f, 1.f), 1, true);
+		const bool bHauntReady = C->GhostHauntCharge >= 0.999f;
+		HudTxt(bHauntReady ? SQInput::TranslateInline(TEXT("[F] HAUNT the toughest enemy nearby: the crew hits it harder")) : FString::Printf(TEXT("Haunt recharging %d%%"), FMath::RoundToInt(C->GhostHauntCharge * 100.f)),
+			HudLabelFont(false), 14.f, HudVW * 0.5f, GY + 26.f, bHauntReady ? SQUI::BoneWhite : SQUI::Disabled, 1, true);
+		HudTxt(TEXT("You still gather XP and gold. Stay near the crew: souls they reap beside you bring you back, and so does the next lantern."),
+			HudLabelFont(false), 13.f, HudVW * 0.5f, GY + 48.f, SQUI::Disabled, 1, true);
+	}
+
+	// ---- Squad chips above the ability bar: Close Ranks and the active Bonds
+	float ChipY = HudVH - FMath::Max(120.f, BottomReserve + 30.f) - 4.f;
+	if (!C->bDowned && C->SquadNear > 0 && GS->PlayerArray.Num() > 1)
+	{
+		HudTxt(FString::Printf(TEXT("CLOSE RANKS x%d"), static_cast<int32>(C->SquadNear)), HudLabelFont(true), 12.f, HudVW * 0.5f, ChipY, FLinearColor(0.6f, 1.f, 0.7f), 1, true);
+		ChipY -= 18.f;
+	}
+	if (D && !C->bDowned)
+	{
+		for (const FName& BondId : C->ActiveBonds)
+		{
+			const FSQBondDef* Bond = D->Bonds.FindByPredicate([BondId](const FSQBondDef& X) { return X.Id == BondId; });
+			if (!Bond) continue;
+			HudTxt(FString::Printf(TEXT("BOND: %s"), *Bond->Name.ToUpper()), HudLabelFont(true), 12.f, HudVW * 0.5f, ChipY, SQUI::Amber, 1, true);
+			ChipY -= 18.f;
+		}
+	}
 }
 
 void ASQHUD::DrawObjectiveArrows(const ASQGameState* GS, const ASQCharacter* C)
@@ -4786,8 +4956,22 @@ void ASQHUD::DrawEndScreen(const ASQGameState* GS, const ASQPlayerState* PS)
 		int32 Chosen = INDEX_NONE;
 		if (bInputLive)
 		{
-			if (PlayerOwner->WasInputKeyJustPressed(EKeys::Enter) || PlayerOwner->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Bottom)) Chosen = 0;
-			else if (PlayerOwner->WasInputKeyJustPressed(EKeys::C) || PlayerOwner->WasInputKeyJustPressed(EKeys::Gamepad_FaceButton_Left)) Chosen = 1;
+			// SETTINGS > ACCESS > Hold to confirm: keys and buttons must be held (a mashed button cannot skip the results);
+			// a mouse click on a button is always instant
+			const USQSaveGame* HoldSave = USQSaveGame::Load();
+			const bool bHoldNeeded = !HoldSave || HoldSave->bHoldToConfirm;
+			const bool bDown[2] = {
+				PlayerOwner->IsInputKeyDown(EKeys::Enter) || PlayerOwner->IsInputKeyDown(EKeys::Gamepad_FaceButton_Bottom),
+				PlayerOwner->IsInputKeyDown(EKeys::C) || PlayerOwner->IsInputKeyDown(EKeys::Gamepad_FaceButton_Left) };
+			for (int32 HoldIdx = 0; HoldIdx < 2; ++HoldIdx)
+			{
+				EndHoldFor[HoldIdx] = bDown[HoldIdx] ? EndHoldFor[HoldIdx] + HudDelta : 0.f;
+				if (Chosen == INDEX_NONE && bDown[HoldIdx] && (!bHoldNeeded || EndHoldFor[HoldIdx] >= 0.45f)) Chosen = HoldIdx;
+			}
+		}
+		else
+		{
+			EndHoldFor[0] = EndHoldFor[1] = 0.f;
 		}
 		for (int32 BtnIdx = 0; BtnIdx < 2; ++BtnIdx)
 		{
@@ -4805,7 +4989,7 @@ void ASQHUD::DrawEndScreen(const ASQGameState* GS, const ASQPlayerState* PS)
 			HudRound(FMath::Lerp(Face, bPrimary ? SQUI::BoneWhite : SQUI::PanelHover, 0.25f * Lift), BX, BY - 2.f * Lift, BtnW, BtnH, 20.f);
 			const float LabelPx = HudFitPx(Labels[BtnIdx], HudHeadFont(), 26.f, BtnW - 120.f);
 			HudTxt(Labels[BtnIdx], HudHeadFont(), LabelPx, BX + BtnW * 0.5f - 24.f, BY - 2.f * Lift + BtnH * 0.5f - 0.62f * LabelPx, Ink, 1, false);
-			HudPill(Keys[BtnIdx], BX + BtnW - 18.f, BY - 2.f * Lift + BtnH * 0.5f - 13.f, SQUI::WithAlpha(SQUI::Midnight, bPrimary ? 0.25f : 0.6f), Ink, 12.f, 2);
+			HudPill(SQInput::UsingPad() ? (BtnIdx == 0 ? TEXT("A") : TEXT("X")) : Keys[BtnIdx], BX + BtnW - 18.f, BY - 2.f * Lift + BtnH * 0.5f - 13.f, SQUI::WithAlpha(SQUI::Midnight, bPrimary ? 0.25f : 0.6f), Ink, 12.f, 2);
 		}
 		if (Chosen != INDEX_NONE)
 		{
@@ -5456,6 +5640,20 @@ void ASQHUD::MinimapDrawIcons(const ASQGameState* GS, const ASQCharacter* C, con
 		return true;
 	};
 	const float Pulse = HudPulse(HudNow, 5.f);
+
+	// --- Pings (co-op pass): a blinking blip in the pinger's colour, pinned to the border when off-panel
+	if (const UWorld* PingWorld = GetWorld())
+	{
+		const double PingNow = PingWorld->GetTimeSeconds();
+		for (const ASQGameState::FSQPing& Ping : GS->LocalPings)
+		{
+			float PingX = 0.f, PingY = 0.f;
+			if (PingNow - Ping.Time > 8.0 || !ToPanel(Ping.Where, true, PingX, PingY)) continue;
+			const FLinearColor PingCol = ASQGameState::PingColor(Ping.Slot);
+			HudDisc(SQUI::WithAlpha(PingCol, 0.3f + 0.3f * Pulse), PingX, PingY, 7.f + 3.f * Pulse);
+			HudDisc(PingCol, PingX, PingY, 3.5f);
+		}
+	}
 
 	// --- Pots, chests, shrines, objectives
 	for (const TWeakObjectPtr<AActor>& Weak : MinimapActors)

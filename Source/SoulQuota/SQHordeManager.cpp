@@ -23,6 +23,7 @@
 #include "SQArena.h"
 #include "SQFx.h"
 #include "SQFxRecipe.h"
+#include "SQPerf.h"
 #include "SQChest.h"
 #include "SQQuests.h"
 #include "SQAugments.h"
@@ -533,6 +534,7 @@ void ASQHordeManager::ServerSim(float DeltaSeconds)
 		Players.Add(*It);
 	}
 
+	RunCombos(Players);
 	SimSpawning(DeltaSeconds, Players);
 	TickCatchUp(DeltaSeconds, Players);
 	SimEnemies(DeltaSeconds, Players);
@@ -547,6 +549,31 @@ void ASQHordeManager::ServerSim(float DeltaSeconds)
 		NextNetTime = Now + 1.f / FMath::Max(1.f, GetNetUpdateFrequency());
 		BuildSnapshots();
 	}
+}
+
+void ASQHordeManager::RunCombos(const TArray<ASQCharacter*>& Players)
+{
+	// Co-op combos (Nov 23 2026): read the dials once a step, then fire the bursts DamageEnemy queued last step
+	if (const USQData* ComboData = USQData::Get(this))
+	{
+		ComboWindow = ComboData->Tune(TEXT("ComboEnabled"), 1.f) > 0.5f ? FMath::Clamp(ComboData->Tune(TEXT("ComboWindow"), 4.f), 0.f, 30.f) : 0.f;
+		ComboBurst = FMath::Clamp(ComboData->Tune(TEXT("ComboBurst"), 0.6f), 0.f, 5.f);
+		ComboRadius = FMath::Clamp(ComboData->Tune(TEXT("ComboRadius"), 260.f), 50.f, 1200.f);
+		ComboCooldown = FMath::Clamp(ComboData->Tune(TEXT("ComboCooldown"), 0.35f), 0.05f, 10.f);
+		bComboSolo = Players.Num() <= 1 && ComboData->Tune(TEXT("ComboSolo"), 1.f) > 0.5f;
+	}
+	if (PendingCombos.Num() == 0) return;
+	const TArray<FPendingCombo> ToFire = MoveTemp(PendingCombos);
+	PendingCombos.Reset();
+	bInCombo = true;
+	for (const FPendingCombo& Combo : ToFire)
+	{
+		ASQCharacter* By = Combo.By.Get();
+		if (!By || Combo.Damage <= 0.f) continue;
+		ApplyAreaDamage(Combo.At, ComboRadius, Combo.Damage, By, 0.f);
+		By->OnSquadCombo(Combo.At, ComboRadius, Combo.Damage);
+	}
+	bInCombo = false;
 }
 
 int32 ASQHordeManager::PickEnemyType(int32 Night, float Progress) const
@@ -987,6 +1014,11 @@ void ASQHordeManager::SimEnemies(float DeltaSeconds, const TArray<ASQCharacter*>
 		E.AttackCd -= DeltaSeconds;
 		E.SlowTime -= DeltaSeconds;
 		E.MarkTime -= DeltaSeconds;
+		if (E.PrimeTime > 0.f)
+		{
+			E.PrimeTime -= DeltaSeconds;
+			if (E.PrimeTime <= 0.f) E.PrimeDamage = 0.f;
+		}
 		E.Age += DeltaSeconds;
 		// ApplyKnockback (slide): a short shove that decays; steering takes over again once it fades
 		if (!E.Knock.IsNearlyZero(5.f))
@@ -1404,6 +1436,8 @@ void ASQHordeManager::SimPickups(float DeltaSeconds, const TArray<ASQCharacter*>
 	TArray<float, TInlineAllocator<8>> SoulRanges;
 	for (ASQCharacter* C : Players) SoulRanges.Add(C ? C->GetSoulMagnet() : 0.f);
 
+	// Ghost shift (Nov 23 2026): a downed reaper's spirit still gathers XP and gold for the crew (never souls)
+	const bool bGhostCollect = D->Tune(TEXT("GhostCollect"), 1.f) > 0.5f;
 	for (FPickup& P : Pickups)
 	{
 		if (!P.bAlive) continue;
@@ -1416,7 +1450,8 @@ void ASQHordeManager::SimPickups(float DeltaSeconds, const TArray<ASQCharacter*>
 		for (int32 PlayerIdx = 0; PlayerIdx < Players.Num(); ++PlayerIdx)
 		{
 			ASQCharacter* C = Players[PlayerIdx];
-			if (!C || C->bDowned) continue;
+			if (!C) continue;
+			if (C->bDowned && (P.Kind == 1 || !bGhostCollect || C->CarriedBy)) continue;
 			const float Range = P.Kind == 1 ? SoulRanges[PlayerIdx] : C->Stats.Magnet; // XP and gold use the normal magnet
 			const float Dist = FVector2D::Distance(C->Pos2D(), P.Pos);
 			if (Dist > Range || Dist >= BestDist) continue;
@@ -1698,6 +1733,33 @@ void ASQHordeManager::DamageEnemy(int32 Index, float Damage, ASQCharacter* By, f
 	FEnemy& E = Enemies[Index];
 	if (!E.bAlive) return;
 	if (E.MarkTime > 0.f) Damage *= 1.f + E.MarkBonus; // Lookout mark
+	// Co-op combos (Nov 23 2026): an E / R primes what it hits; a hit from ANOTHER reaper (solo: your own weapons) bursts it.
+	// The burst is queued and runs next sim step, so nothing here re-enters the damage loops.
+	if (By && Damage > 0.f && !bInCombo && ComboWindow > 0.f)
+	{
+		const uint32 ById = By->GetUniqueID();
+		const bool bPrimedByOther = E.PrimeTime > 0.f && (E.PrimeBy != ById || (bComboSolo && !bPrimeHits));
+		if (bPrimedByOther)
+		{
+			float& ReadyAt = ComboReadyAt.FindOrAdd(ById);
+			if (SimClock >= ReadyAt && PendingCombos.Num() < 24)
+			{
+				ReadyAt = SimClock + ComboCooldown;
+				FPendingCombo& Combo = PendingCombos.AddDefaulted_GetRef();
+				Combo.At = E.Pos;
+				Combo.Damage = E.PrimeDamage * ComboBurst;
+				Combo.By = By;
+				E.PrimeTime = 0.f;
+				E.PrimeDamage = 0.f;
+			}
+		}
+		else if (bPrimeHits)
+		{
+			E.PrimeTime = ComboWindow;
+			E.PrimeDamage = FMath::Max(E.PrimeDamage, Damage);
+			E.PrimeBy = ById;
+		}
+	}
 	Damage = USQAugments::OnHit(By, Damage, E.Type, E.Health, E.MaxHealth, E.Pos, E.EcoFlags); // augments + mission nests (Nov 9 missions)
 	const float HealthBefore = E.Health;
 	E.Health -= Damage;
@@ -4057,7 +4119,8 @@ void ASQHordeManager::RenderSkinned(TArray<FViewItem>& EnemyView, float DeltaSec
 	if (!D) return;
 
 	const int32 PoolSize = FMath::Min3(SkinFollowers.Num(), SkinSlots.Num(), SlotProps.Num());
-	const float RadiusSq = SkinRadius * SkinRadius;
+	// Quality governor (SQPerf): fewer animated bodies near you while the frame time is over budget (cosmetic, per machine)
+	const float RadiusSq = FMath::Square(SkinRadius * SQPerf::HordeScale());
 
 	// Ends a follower's own one-shot and hands it back to a leader on the next pose
 	auto EndOneShot = [this](USkeletalMeshComponent* OneShotComp, FSkinSlot& OneShotSlot)

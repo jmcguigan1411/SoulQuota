@@ -12,6 +12,6 @@ public class SoulQuota : ModuleRules
 			"NetCore", "AIModule", "OnlineSubsystem", "OnlineSubsystemUtils"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore", "PhysicsCore", "ProceduralMeshComponent" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore", "PhysicsCore", "ProceduralMeshComponent", "ApplicationCore", "Sockets" });
 	}
 }

@@ -269,3 +269,10 @@ turn white... gold version: coins, bundle of coins, coin purse, gold bars"; "no 
 - Later: bridges / cliffs (authored meshes), per-map sky hills, retire unused Ringmaster / Abbot rows.
 
 - Nov 15 2026: map art pass (ground art M_GroundV3 + KayKit standing scenery, 46 meshes). Needs rebuild + setup run. Next: check screenshots for house facing (MapKitFrontYaw), ground joint strength, scenery density.
+
+## Platform pass (findings 7 to 9), Nov 24 2026
+Details in Docs/Platform.md and Docs/Steam.md.
+- Done in code (not compiled or played in Unreal): 9 graphics options, first-run auto detect, frame-rate governor; 8 controller map, rebinding, glyph caps, rumble, Deck-readable HUD scale, ACCESS tab; 7 late-join catch-up, reconnect to a held reaper, host-quit banking, LAN run list, invite code, Steam-ready session layer.
+- Needs: rebuild (new files SQInput, SQPerf, SQSession; Build.cs gained ApplicationCore and Sockets). No setup script.
+- To test: pad through every menu; rebinding; governor under a big horde; two machines for the LAN list, drop and rejoin, host quit.
+- Later: Steam switch (needs app id), invite overlay button, session player counts, on-screen keyboard for the address box, chest cue labels that flip with the device mid-run.

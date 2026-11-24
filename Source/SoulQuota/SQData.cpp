@@ -790,6 +790,16 @@ void USQData::Reload()
 
 float USQData::Tune(FName Key, float Default) const
 {
+	if (LocalTuning.Num() > 0)
+	{
+		if (const float* Local = LocalTuning.Find(Key)) return *Local;
+	}
+	const float* V = Tuning.Find(Key);
+	return V ? *V : Default;
+}
+
+float USQData::TuneBase(FName Key, float Default) const
+{
 	const float* V = Tuning.Find(Key);
 	return V ? *V : Default;
 }

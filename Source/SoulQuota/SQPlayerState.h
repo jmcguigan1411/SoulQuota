@@ -97,6 +97,10 @@ public:
 
 	/** Server only (not replicated): the night index this player joined the current run on (0 = from the start) */
 	int32 RunJoinNight = 0;
+	/** Server only: the profile's stable id (travel option SQId), used to hand a held seat back after a disconnect */
+	FString StableId;
+	/** Server only: this state stands in for a human who dropped (a bot holds their reaper) */
+	bool bHeldSeat = false;
 	/** Server only: a mid-run joiner may apply their menu reaper once, until this world REAL time (-1 = closed) */
 	double MidRunPickDeadline = -1.0;
 

@@ -38,6 +38,7 @@ enum class ESQTutView : uint8 { Menu, Lobby, Run };
 enum class ESQTip : uint8
 {
 	LevelUpSolo, LevelUpCoop, Souls, Gold, Chest, Shrine, Pot, Bell, FinalSwarm, Skull, Ramp, Miniboss, Pinned,
+	Ghost, Ping, Combo, // co-op pass, Nov 23 2026
 	Count
 };
 
@@ -71,6 +72,11 @@ struct FSQTutorialPainter
 	bool bNavRight = false;
 	bool bConfirm = false;
 	bool bTabNext = false;
+	bool bTabPrev = false;
+	/** Back / cancel this frame (Esc, gamepad B) */
+	bool bBack = false;
+	/** The local player (settings panel: key capture for rebinding, device for glyphs). May be null. */
+	class APlayerController* PC = nullptr;
 
 	// ---- Training Shift anchors (screen design units; X < 0 = unknown). The HUD fills these every frame.
 	float ReaperX = -1.f, ReaperY = -1.f;          // the reaper's chest on screen

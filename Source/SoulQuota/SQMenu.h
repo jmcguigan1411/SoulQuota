@@ -225,6 +225,7 @@ private:
 	bool bUsingPad = false;
 	float NavHold[4] = {};
 	float BackspaceHold = 0.f;
+	float LastSessionFind = -100.f;
 
 	// main page
 	int32 MainFocus = 0;

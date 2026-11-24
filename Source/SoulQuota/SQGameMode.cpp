@@ -9,6 +9,7 @@
 #include "SQData.h"
 #include "SQGameState.h"
 #include "SQPlayerState.h"
+#include "SQSession.h"
 #include "SQPlayerController.h"
 #include "SQCharacter.h"
 #include "SQHordeManager.h"
@@ -65,6 +66,12 @@ void ASQGameMode::BeginPlay()
 
 	// A previous world (or a pick pause interrupted by travel) must never leave the new one frozen
 	UGameplayStatics::SetGlobalTimeDilation(this, 1.f);
+
+	// Platform pass: a listen server advertises itself (LAN beacon today, Steam lobby after the config switch; SQSession)
+	if (GetNetMode() == NM_ListenServer && (!D || D->Tune(TEXT("SessionAdvertise"), 1.f) > 0.5f))
+	{
+		SQSession::Host(GetWorld(), 4, FString(FPlatformProcess::ComputerName()));
+	}
 }
 
 void ASQGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -119,7 +126,14 @@ void ASQGameMode::PostLogin(APlayerController* NewPlayer)
 			}
 		}
 	}
+	// A new mid-run joiner (not someone taking a held seat back) banks catch-up picks and gold
+	const bool bTakesSeat = FindHeldSeat(NewPlayer) != INDEX_NONE;
 	Super::PostLogin(NewPlayer);
+	if (NewPlayer && !bTakesSeat)
+	{
+		ASQPlayerState* CatchPS = NewPlayer->GetPlayerState<ASQPlayerState>();
+		if (CatchPS && CatchPS->MidRunPickDeadline >= 0.0) GrantLateJoinCatchUp(CatchPS);
+	}
 	// The listen-server host's own Death's Office ranks (remote clients send theirs from ASQPlayerState::ClientInitialize)
 	if (NewPlayer && NewPlayer->IsLocalController())
 	{
@@ -158,10 +172,155 @@ FVector ASQGameMode::GetStartSpot(int32 Index) const
 	return FVector(SpotX, SpotY, ASQArena::GroundZAt(this, SpotX, SpotY) + CapsuleHalf + 20.f);
 }
 
+FString ASQGameMode::InitNewPlayer(APlayerController* NewPlayerController, const FUniqueNetIdRepl& UniqueId, const FString& Options, const FString& Portal)
+{
+	const FString Result = Super::InitNewPlayer(NewPlayerController, UniqueId, Options, Portal);
+	// Stable profile id for reconnecting (letters and digits only, bounded: it comes from the client)
+	if (NewPlayerController)
+	{
+		if (ASQPlayerState* IdPS = NewPlayerController->GetPlayerState<ASQPlayerState>())
+		{
+			FString Id = UGameplayStatics::ParseOption(Options, TEXT("SQId")).Left(40);
+			bool bClean = !Id.IsEmpty();
+			for (int32 ChIdx = 0; ChIdx < Id.Len(); ++ChIdx) bClean = bClean && FChar::IsAlnum(Id[ChIdx]);
+			IdPS->StableId = bClean ? Id : FString();
+		}
+	}
+	return Result;
+}
+
+void ASQGameMode::NoticeAll(const FString& Text, const FString& Sub, const ASQPlayerState* Except)
+{
+	if (!GameState) return;
+	for (APlayerState* Each : GameState->PlayerArray)
+	{
+		ASQPlayerState* EachPS = Cast<ASQPlayerState>(Each);
+		if (EachPS && EachPS != Except && !EachPS->IsABot()) EachPS->ClientNotice(Text, Sub, 0, 0);
+	}
+}
+
+int32 ASQGameMode::FindHeldSeat(const AController* Who) const
+{
+	const ASQPlayerState* WhoPS = Who ? Who->GetPlayerState<ASQPlayerState>() : nullptr;
+	if (!WhoPS || WhoPS->StableId.IsEmpty()) return INDEX_NONE;
+	const double RealNow = FPlatformTime::Seconds();
+	for (int32 SeatIdx = 0; SeatIdx < HeldSeats.Num(); ++SeatIdx)
+	{
+		const FHeldSeat& Seat = HeldSeats[SeatIdx];
+		const ASQBotController* SeatBot = Seat.Bot.Get();
+		if (Seat.StableId == WhoPS->StableId && SeatBot && SeatBot->GetPawn() && RealNow <= Seat.ExpiresReal) return SeatIdx;
+	}
+	return INDEX_NONE;
+}
+
+void ASQGameMode::GrantLateJoinCatchUp(ASQPlayerState* PS)
+{
+	const ASQGameState* GS = GetGameState<ASQGameState>();
+	const USQData* D = USQData::Get(this);
+	if (!PS || !GS || !D || D->Tune(TEXT("LateJoinCatchUp"), 1.f) < 0.5f) return;
+	if (GS->Phase != ESQPhase::Night && GS->Phase != ESQPhase::Boss) return;
+	// Level-ups: the team level is shared, so a newcomer banks (nearly) as many picks as everyone else has had; the
+	// usual pick flow (cards, auto-pick timeout) hands them out. Gold: the squad average.
+	const float Share = FMath::Clamp(D->Tune(TEXT("LateJoinLevelShare"), 0.8f), 0.f, 1.f);
+	const int32 Picks = FMath::Clamp(FMath::FloorToInt(static_cast<float>(GS->TeamLevel - 1) * Share), 0, 60);
+	int32 GoldSum = 0, Others = 0;
+	for (APlayerState* Other : GS->PlayerArray)
+	{
+		const ASQPlayerState* OtherPS = Cast<ASQPlayerState>(Other);
+		if (!OtherPS || OtherPS == PS) continue;
+		GoldSum += OtherPS->Gold;
+		++Others;
+	}
+	PS->PendingLevelUps += Picks;
+	if (Others > 0) PS->Gold = FMath::Max(PS->Gold, GoldSum / Others);
+}
+
+void ASQGameMode::Logout(AController* Exiting)
+{
+	// A human dropping mid-run: a stand-in bot takes over their reaper so the squad is not a body short, and the same
+	// profile can take it back (RestartPlayer). In the lobby, at the end screen or without a pawn: the usual clean-up.
+	ASQGameState* GS = GetGameState<ASQGameState>();
+	const USQData* D = USQData::Get(this);
+	APlayerController* LeavingPC = Cast<APlayerController>(Exiting);
+	ASQPlayerState* LeavingPS = LeavingPC ? LeavingPC->GetPlayerState<ASQPlayerState>() : nullptr;
+	ASQCharacter* LeavingPawn = LeavingPC ? Cast<ASQCharacter>(LeavingPC->GetPawn()) : nullptr;
+	const bool bRunLive = GS && (GS->Phase == ESQPhase::Night || GS->Phase == ESQPhase::Boss);
+	const float Grace = D ? D->Tune(TEXT("ReconnectGraceSeconds"), 300.f) : 300.f;
+	if (bRunLive && LeavingPS && LeavingPawn && !LeavingPC->IsLocalController() && Grace > 0.f && GetWorld() && !GetWorld()->bIsTearingDown)
+	{
+		FActorSpawnParameters SeatParams;
+		SeatParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		ASQBotController* SeatBot = GetWorld()->SpawnActor<ASQBotController>(ASQBotController::StaticClass(), FTransform::Identity, SeatParams);
+		ASQPlayerState* SeatPS = SeatBot ? SeatBot->GetPlayerState<ASQPlayerState>() : nullptr;
+		if (SeatBot && SeatPS)
+		{
+			SeatPS->ReaperId = LeavingPS->ReaperId;
+			SeatPS->Gold = LeavingPS->Gold;
+			SeatPS->Kills = LeavingPS->Kills;
+			SeatPS->ChestsOpened = LeavingPS->ChestsOpened;
+			SeatPS->OwnedAugments = LeavingPS->OwnedAugments;
+			SeatPS->PendingLevelUps = LeavingPS->PendingLevelUps;
+			SeatPS->PendingAugments = LeavingPS->PendingAugments;
+			SeatPS->RerollsLeft = LeavingPS->RerollsLeft;
+			SeatPS->RunJoinNight = LeavingPS->RunJoinNight;
+			SeatPS->MetaRanks = LeavingPS->MetaRanks;
+			SeatPS->StableId = LeavingPS->StableId;
+			SeatPS->bHeldSeat = true;
+			SeatPS->SetPlayerName(LeavingPS->GetPlayerName() + TEXT(" (away)"));
+			SeatPS->SetIsABot(true);
+			LeavingPC->UnPossess();
+			SeatBot->Possess(LeavingPawn);
+			if (!LeavingPS->StableId.IsEmpty())
+			{
+				HeldSeats.RemoveAll([&](const FHeldSeat& Old) { return Old.StableId == LeavingPS->StableId; });
+				FHeldSeat Seat;
+				Seat.StableId = LeavingPS->StableId;
+				Seat.Bot = SeatBot;
+				Seat.ExpiresReal = FPlatformTime::Seconds() + static_cast<double>(Grace);
+				HeldSeats.Add(Seat);
+			}
+			NoticeAll(FString::Printf(TEXT("%s lost connection"), *LeavingPS->GetPlayerName()), TEXT("A stand-in holds their reaper until they are back"), LeavingPS);
+		}
+		else if (SeatBot)
+		{
+			SeatBot->Destroy();
+		}
+	}
+	Super::Logout(Exiting);
+}
+
 void ASQGameMode::RestartPlayer(AController* NewPlayer)
 {
 	// No PlayerStart actors needed: spawn around the lantern (the run start moves everyone to the map's player starts)
 	if (!NewPlayer || NewPlayer->IsPendingKillPending()) return;
+	// Reconnect: take the held seat back (the reaper kept everything; the stand-in's state holds gold, augments, picks)
+	const int32 SeatIdx = FindHeldSeat(NewPlayer);
+	if (SeatIdx != INDEX_NONE)
+	{
+		ASQBotController* SeatBot = HeldSeats[SeatIdx].Bot.Get();
+		APawn* SeatPawn = SeatBot ? SeatBot->GetPawn() : nullptr;
+		ASQPlayerState* SeatPS = SeatBot ? SeatBot->GetPlayerState<ASQPlayerState>() : nullptr;
+		ASQPlayerState* BackPS = NewPlayer->GetPlayerState<ASQPlayerState>();
+		HeldSeats.RemoveAt(SeatIdx);
+		if (SeatBot && SeatPawn && SeatPS && BackPS)
+		{
+			BackPS->ReaperId = SeatPS->ReaperId;
+			BackPS->Gold = SeatPS->Gold;
+			BackPS->Kills = SeatPS->Kills;
+			BackPS->ChestsOpened = SeatPS->ChestsOpened;
+			BackPS->OwnedAugments = SeatPS->OwnedAugments;
+			BackPS->PendingLevelUps = SeatPS->PendingLevelUps;
+			BackPS->PendingAugments = SeatPS->PendingAugments;
+			BackPS->RerollsLeft = SeatPS->RerollsLeft;
+			BackPS->RunJoinNight = SeatPS->RunJoinNight;
+			BackPS->MidRunPickDeadline = -1.0; // their reaper is already chosen
+			SeatBot->UnPossess();
+			NewPlayer->Possess(SeatPawn);
+			SeatBot->Destroy();
+			NoticeAll(FString::Printf(TEXT("%s is back"), *BackPS->GetPlayerName()), TEXT("They took their reaper back from the stand-in"), nullptr);
+			return;
+		}
+	}
 	RestartPlayerAtTransform(NewPlayer, GetSpawnTransform());
 }
 
@@ -917,6 +1076,22 @@ void ASQGameMode::ResetRun()
 	const USQData* D = USQData::Get(this);
 	if (!GS) return;
 
+	// Stand-ins for players who dropped and never came back leave with the run
+	HeldSeats.Reset();
+	{
+		TArray<AController*> SeatBots;
+		for (APlayerState* Each : GS->PlayerArray)
+		{
+			const ASQPlayerState* EachPS = Cast<ASQPlayerState>(Each);
+			if (EachPS && EachPS->bHeldSeat) SeatBots.Add(Cast<AController>(EachPS->GetOwner()));
+		}
+		for (AController* SeatBot : SeatBots)
+		{
+			if (!SeatBot) continue;
+			if (APawn* SeatPawn = SeatBot->GetPawn()) SeatPawn->Destroy();
+			SeatBot->Destroy();
+		}
+	}
 	Director.End();
 	if (GS->Horde) GS->Horde->ClearAll();
 	GS->ResetTeamProgress();

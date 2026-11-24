@@ -1,5 +1,6 @@
 // Copyright 2026 Jack McGuigan. All rights reserved.
 #include "SQPortal.h"
+#include "SQInput.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Net/UnrealNetwork.h"
@@ -142,7 +143,7 @@ void ASQPortal::Tick(float DeltaSeconds)
 		{
 			CueLabelKey = LabelKey;
 			Cue->SetLabel(LabelKey >= 100 ? FString::Printf(TEXT("RINGING  %d%%"), LabelKey - 100)
-				: (LabelKey == 1 ? FString(TEXT("RING THE BELL  [F]")) : FString(TEXT("THE BELL: FINISH THE OBJECTIVES"))));
+				: (LabelKey == 1 ? SQInput::TranslateInline(TEXT("RING THE BELL  [F]")) : FString(TEXT("THE BELL: FINISH THE OBJECTIVES"))));
 		}
 	}
 }

@@ -20,12 +20,15 @@
 #include "SceneView.h"
 #include "Sound/SoundBase.h"
 #include "SQData.h"
+#include "SQGameState.h"
 #include "SQMenuShowroom.h"
 #include "SQSave.h"
+#include "SQSession.h"
 #include "SQUIStyle.h"
 #include "SQQuests.h"
 #include "SQTutorial.h"
 #include "SQMission.h"
+#include "SQPlayerState.h"
 
 class UNetDriver;
 
@@ -35,9 +38,27 @@ namespace
 	FString MenuPendingNote;
 	bool bMenuFailureHooked = false;
 
-	void MenuOnNetworkFailure(UWorld*, UNetDriver*, ENetworkFailure::Type, const FString& ErrorText)
+	void MenuOnNetworkFailure(UWorld* World, UNetDriver*, ENetworkFailure::Type, const FString& ErrorText)
 	{
 		MenuPendingNote = FString::Printf(TEXT("Couldn't reach that run: %s"), *ErrorText);
+		// Platform pass: the host quit or the link dropped in the middle of a run. A client keeps a loss-sized share of
+		// the gold it was carrying (the host can no longer send the end-of-run payout), then lands on the main menu
+		// (the engine travels to the default map by itself). Rejoining the same host inside the grace period gives the reaper back.
+		const ASQGameState* GS = World ? World->GetGameState<ASQGameState>() : nullptr;
+		const APlayerController* LocalPC = World ? World->GetFirstPlayerController() : nullptr;
+		const ASQPlayerState* PS = LocalPC ? LocalPC->GetPlayerState<ASQPlayerState>() : nullptr;
+		if (!GS || !PS || World->GetNetMode() != NM_Client) return;
+		if (GS->Phase != ESQPhase::Night && GS->Phase != ESQPhase::Boss) return;
+		const USQData* D = USQData::Get(World);
+		const float Share = FMath::Clamp((D ? D->Tune(TEXT("BankShareLoss"), 0.2f) : 0.2f) * 0.5f, 0.f, 1.f);
+		const int32 Banked = FMath::Clamp(FMath::RoundToInt(static_cast<float>(PS->Gold) * Share), 0, 1000000);
+		if (USQSaveGame* Save = USQSaveGame::Load())
+		{
+			Save->OvertimePay = FMath::Clamp(Save->OvertimePay + Banked, 0, 100000000);
+			Save->LifetimePay = FMath::Clamp(Save->LifetimePay + Banked, 0, 100000000);
+			USQSaveGame::Store(Save);
+		}
+		MenuPendingNote = FString::Printf(TEXT("Lost the connection to the host. %d gold banked. Join again within a few minutes to take your reaper back."), Banked);
 	}
 
 	void MenuOnTravelFailure(UWorld*, ETravelFailure::Type, const FString& ErrorText)
@@ -120,6 +141,16 @@ void ASQMenuHUD::BeginPlay()
 	if (UWorld* World = GetWorld())
 	{
 		TimeNow = static_cast<float>(World->GetRealTimeSeconds());
+	// A run picked from the list on PLAY CO-OP (or an accepted invite) has resolved to an address: go
+	if (!bTravelling)
+	{
+		FString SessionAddress;
+		if (SQSession::TakeConnectString(SessionAddress))
+		{
+			Address = SessionAddress;
+			StartTravel(true);
+		}
+	}
 	}
 	if (!bMenuFailureHooked && GEngine)
 	{
@@ -129,6 +160,9 @@ void ASQMenuHUD::BeginPlay()
 	}
 	USQSaveGame* Save = GetSave();
 	Address = Save && !Save->LastJoinAddress.IsEmpty() ? Save->LastJoinAddress : FString(TEXT("127.0.0.1"));
+	// Back at the menu: any session this machine hosted or joined is over; accepted invites land in SQSession
+	SQSession::Leave(GetWorld());
+	SQSession::ListenForInvites(GetWorld());
 
 	// the music loop (create_audio.py), fading in
 	if (USoundBase* Track = SQ::Sound(TEXT("Music")))
@@ -1698,13 +1732,13 @@ void ASQMenuHUD::DrawJoinPage()
 		}
 	}
 	const float A = MenuAppear(TimeNow - PageChangeTime, 0.1f, 0.4f);
-	const float PW = FMath::Min(820.f * U, Canvas->ClipX - 80.f * U), PH = 520.f * U;
+	const float PW = FMath::Min(820.f * U, Canvas->ClipX - 80.f * U), PH = 670.f * U;
 	const float PX = (Canvas->ClipX - PW) * 0.5f;
 	const float PY = FMath::Max(170.f * U, (Canvas->ClipY - PH) * 0.5f + 10.f * U) + 30.f * U * (1.f - A);
 	DrawAlpha = A;
 	PanelBox(PX, PY, PW, PH);
 
-	Txt(TEXT("FRIEND'S ADDRESS"), LabelFont(true), 15.f, PX + 40.f * U, PY + 34.f * U, SQUI::Muted);
+	Txt(TEXT("FRIEND'S ADDRESS OR INVITE CODE"), LabelFont(true), 15.f, PX + 40.f * U, PY + 34.f * U, SQUI::Muted);
 	const float FX = PX + 40.f * U, FY = PY + 62.f * U, FW = PW - 80.f * U, FH = 84.f * U;
 	Round(SQUI::WithAlpha(SQUI::Soul, 0.5f + 0.5f * (PageFocus == 0 ? 1.f : 0.f)), FX - 3.f * U, FY - 3.f * U, FW + 6.f * U, FH + 6.f * U, 17.f * U);
 	Round(SQUI::Midnight, FX, FY, FW, FH, 14.f * U);
@@ -1725,19 +1759,67 @@ void ASQMenuHUD::DrawJoinPage()
 
 	float TY = FY + FH + 26.f * U;
 	const float LineH = 25.f * U;
-	TY += TxtWrap(TEXT("To host: press HOST A LOBBY and tell your friends your IP address. To join: type the host's IP and press JOIN RUN."), LabelFont(), 18.f, PX + 40.f * U, TY,
+	TY += TxtWrap(TEXT("To host: press HOST A LOBBY and tell your friends your IP address. To join: type the host's invite code or IP and press JOIN RUN."), LabelFont(), 18.f, PX + 40.f * U, TY,
 		PW - 80.f * U, SQUI::BoneWhite, LineH, 3) * LineH + 10.f * U;
 	TY += TxtWrap(TEXT("Same Wi-Fi: their local IP (like 192.168.1.20). Over the internet: their public IP, with port 7777 forwarded on their router."),
 		LabelFont(), 16.f, PX + 40.f * U, TY, PW - 80.f * U, SQUI::Muted, 22.f * U, 3) * 22.f * U + 10.f * U;
 	Txt(TEXT("TYPE WITH THE KEYBOARD  \u00B7  BACKSPACE DELETES  \u00B7  DELETE CLEARS"), LabelFont(true), 12.f, PX + 40.f * U, TY, SQUI::Disabled);
+	TY += 30.f * U;
+
+	// ---- Platform pass: runs found by the session service (same network today; friends' lobbies once Steam is on).
+	// Focus 3.. = these rows (Up from the buttons, Down back to them), so a controller can join without typing.
+	if (!bTravelling && !SQSession::IsSearching() && TimeNow - LastSessionFind > 5.f)
+	{
+		LastSessionFind = TimeNow;
+		SQSession::Find(GetWorld());
+	}
+	const TArray<SQSession::FFound>& Runs = SQSession::Results();
+	const int32 NumRuns = FMath::Min(Runs.Num(), 3);
+	if (PageFocus >= 3 + NumRuns)
+	{
+		PageFocus = 0;
+	}
+	Txt(SQSession::IsLan() ? TEXT("RUNS ON YOUR NETWORK") : TEXT("FRIENDS' LOBBIES"), LabelFont(true), 15.f, PX + 40.f * U, TY, SQUI::Muted);
+	TY += 26.f * U;
+	if (NumRuns == 0)
+	{
+		Txt(SQSession::IsSearching() ? TEXT("Looking for open lobbies...") : TEXT("None found yet. A friend hosting on the same network shows up here."),
+			LabelFont(), 16.f, PX + 40.f * U, TY, SQUI::Disabled);
+	}
+	for (int32 RunIdx = 0; RunIdx < NumRuns; ++RunIdx)
+	{
+		const FString RunLabel = FString::Printf(TEXT("%s  \u00B7  %d ms"), *Runs[RunIdx].Host.Left(28).ToUpper(), FMath::Clamp(Runs[RunIdx].PingMs, 0, 999));
+		if (DrawPageButton(RunLabel, PX + 40.f * U, TY + RunIdx * 52.f * U, PW - 80.f * U, 44.f * U, 0, true, 3 + RunIdx, PageFocus))
+		{
+			SQSession::Join(GetWorld(), RunIdx);
+		}
+	}
 
 	// HOST A LOBBY (2), LOCAL TEST (1) and JOIN RUN (focus 0, the default); Left / Right between them
-	if (bNavRight || bNavDown)
+	if (PageFocus >= 3)
+	{
+		if (bNavUp && PageFocus > 3)
+		{
+			--PageFocus;
+			PlayUI(TEXT("Soul"), 0.12f, 1.5f);
+		}
+		else if (bNavDown)
+		{
+			PageFocus = PageFocus + 1 < 3 + NumRuns ? PageFocus + 1 : 0;
+			PlayUI(TEXT("Soul"), 0.12f, 1.5f);
+		}
+	}
+	else if (bNavUp && NumRuns > 0)
+	{
+		PageFocus = 3 + NumRuns - 1;
+		PlayUI(TEXT("Soul"), 0.12f, 1.5f);
+	}
+	else if (bNavRight || bNavDown)
 	{
 		PageFocus = PageFocus <= 0 ? 2 : PageFocus - 1;
 		PlayUI(TEXT("Soul"), 0.12f, 1.5f);
 	}
-	if (bNavLeft || bNavUp)
+	else if (bNavLeft || bNavUp)
 	{
 		PageFocus = PageFocus >= 2 ? 0 : PageFocus + 1;
 		PlayUI(TEXT("Soul"), 0.12f, 1.5f);
@@ -2849,6 +2931,12 @@ void ASQMenuHUD::StartTravel(bool bJoin, bool bHostLobby)
 		{
 			Address = TEXT("127.0.0.1");
 		}
+		// An invite code (the ten letters the host's lobby shows) is an address in a friendlier coat
+		FString FromCode;
+		if (SQSession::DecodeInvite(Address, FromCode))
+		{
+			Address = FromCode;
+		}
 		if (Save)
 		{
 			Save->LastJoinAddress = Address;
@@ -2886,7 +2974,13 @@ void ASQMenuHUD::FireTravel()
 	{
 		if (APlayerController* PC = GetOwningPlayerController())
 		{
-			PC->ClientTravel(Address, ETravelType::TRAVEL_Absolute);
+			// The profile's stable id rides along so the host can hand a held reaper back after a disconnect (SQId)
+			FString JoinUrl = Address;
+			if (const USQSaveGame* IdSave = USQSaveGame::Load())
+			{
+				if (!IdSave->PlayerId.IsEmpty() && !JoinUrl.Contains(TEXT("SQId="))) JoinUrl += TEXT("?SQId=") + IdSave->PlayerId;
+			}
+			PC->ClientTravel(JoinUrl, ETravelType::TRAVEL_Absolute);
 		}
 		return;
 	}
