@@ -139,3 +139,8 @@ New files: `Docs/Licenses/` (3 OFL texts, 2 KayKit licences, `THIRD_PARTY_NOTICE
 5. **Megabonk clone risk (design, not legal):** change the 1:1 item mechanics listed in section 2 before Keepsakes ship.
 6. **Professional check (recommended before the Steam page goes up):** a short trademark clearance by a UK IP attorney or solicitor. Also an optional review of the Steam store page text and trailer.
 7. Keep this rule for new content: no names from other games, films, books, TV, anime or brands, and no "clock in / time card / night shift / overtime / delivery" wording. Re-run this audit for each content update.
+
+## Character pass (Nov 25 2026)
+Body changes are proportions of the existing original meshes; no new likenesses. Bark lines are original. "It's alive!"
+(Solace's R, unchanged name) is a common two-word exclamation also known from a 1931 film; not protectable, swap if counsel prefers.
+Werewolf, vampire, mummy, ghost, witch, headless horseman, scarecrow are public-domain folklore types; no film-specific looks used.
