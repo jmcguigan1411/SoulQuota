@@ -260,3 +260,15 @@ Known gaps: Tallow is kept +13% over its role target so Wick Bolt hits stay read
 - **Outliers trimmed / lifted**: Intern E 19 -> 28, R final 199 -> 290; Chimney Sweep E 22 -> 28, R 27 -> 36; Widow E 33 -> 26,
   R final 102 -> 75; Lookout E 12 -> 10, passive mark +12% -> +6%. Still out (model section 22): Tallow +16% (kept), Widow +16% and
   Lookout +13% (their strength is the signature weapon, Upgrades.csv), Intern -10%.
+
+## Ability mods (character pass, Nov 25 2026)
+`Kits.csv` columns `<Slot>_Mod`, `<Slot>_ModValue`, `<Slot>_ModTime` (empty = none). Unknown mods are reported in the data error banner.
+| Mod | Slot | ModValue | ModTime | Who |
+|---|---|---|---|---|
+| Charges | E | charges (each refills in one cooldown, one at a time) | - | Mort |
+| Recast | E | snap-back damage x Damage | window to press E again | Tickwell |
+| Stacks | E | +damage per stack (max 3) | chain window | Monk |
+| Trap | Circle | most armed at once (oldest goes off) | life | Pallbearers |
+| Detonate | any | extra bursts (FinalDamage, else Damage) at the target | gap between bursts | Intern E + R, Neckless E |
+Tuning: ChargeLockout, RecastLockout. The HUD shows charges / stacks on the E slot ("x2").
+Movement traits live in `Reapers.csv` (Trait*), see Docs/Characters.md.
