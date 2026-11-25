@@ -1408,7 +1408,8 @@ def ability_numbers(d, k, slot, b, evolved):
              cd=max(1.0, g("Cooldown", 10) * (g("EvoCooldown", 1) if evo else 1) * b.cooldown_mult ** d.t("AbilityHasteExp", 0.5)),
              dur=g("Duration") * (g("EvoDuration", 1) if evo else 1) * b.duration, tick=max(0.1, g("Tick", 0.5)),
              ev=g("EffectValue") * (g("EvoDamage", 1) if evo else 1), et=g("EffectTime") * b.duration,
-             evo_effect=(k.get("%s_EvoEffect" % slot) or "") if evo else "", evo_value=g("EvoValue"), evo_time=g("EvoTime") * b.duration)
+             evo_effect=(k.get("%s_EvoEffect" % slot) or "") if evo else "", evo_value=g("EvoValue"), evo_time=g("EvoTime") * b.duration,
+             mod=(k.get("%s_Mod" % slot) or ""), mod_value=g("ModValue"), mod_time=g("ModTime"))
     return a
 
 
@@ -1483,6 +1484,29 @@ def ability_power(d, k, slot, b, evolved, passive_cd=1.0, echo=1.0):
     horde_hits, boss_hits, affected = ability_hits(a, slot)
     out["horde"] = (a["dmg"] * hit * horde_hits + a["final"] * hit * a.get("_final_hits", affected if a["final"] else 0)) / cd * up
     out["boss"] = (a["dmg"] * hit * boss_hits + a["final"] * hit * (1.0 if a["final"] else 0)) / cd * up
+    # Character pass (Nov 25) ability mods (USQAbilityComponent::QueueModFollowUps / CommitCast)
+    mod, mv = a.get("mod", ""), a.get("mod_value", 0.0)
+    if mod == "Detonate":
+        # ModValue extra bursts of FinalDamage (or Damage) at the target, Radius (or 250)
+        burst = a["final"] if a["final"] else a["dmg"]
+        rr = a["radius"] if a["radius"] > 0 else 250.0
+        nb = min(TARGET_CAP[slot], 3.14159 * rr * rr * DENSITY)
+        out["horde"] += burst * hit * nb * mv / cd * up
+        out["boss"] += burst * hit * mv * 0.8 / cd * up
+    elif mod == "Recast":
+        # the snap back hits again for ModValue x Damage in max(Radius, 220) and half damage along the way (used ~70% of casts)
+        rr = max(a["radius"], 220.0)
+        nb = min(TARGET_CAP[slot], 3.14159 * rr * rr * DENSITY)
+        out["horde"] += 0.7 * a["dmg"] * mv * hit * nb * 1.3 / cd * up
+        out["boss"] += 0.7 * a["dmg"] * mv * hit * 1.5 / cd * up
+    elif mod == "Stacks":
+        # chained casts: average stack about 1.5 of +ModValue each (needs targets every few seconds)
+        out["horde"] *= 1 + 1.5 * mv * 0.8
+        out["boss"] *= 1 + 1.5 * mv * 0.8
+    elif mod == "Trap":
+        # waits for a target: some traps go off late or on few enemies
+        out["horde"] *= 0.85
+        out["boss"] *= 0.6
     util = 0.0
     base_dur = a["dur"] if a["dur"] > 0 else a["et"]
     util += effect_util(a, slot, a["effects"], a["ev"], a["et"], base_dur, False, cd, up, affected, horde_hits, out)

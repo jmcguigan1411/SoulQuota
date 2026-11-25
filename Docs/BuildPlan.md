@@ -314,3 +314,15 @@ Details in Docs/Content.md and Docs/Pricing.md. Not compiled or played in Unreal
 - [x] Blood Moon and Soul Storm event skies; Trapped Spirit companion wisps; Gilt Scuttler flee + gilt look; district condition pennants
 - [ ] Horde melee should skip reapers standing on the walkway deck (hook in Docs/Maps.md)
 - [ ] Real-art pass for the walkway / lighthouse / skyline clocks (currently engine primitives in map colours)
+
+## Character pass (Nov 25 2026) - each reaper completely different
+- [x] Audit: lineup / back / silhouette renders, kit overlap list (Docs/Characters.md, outputs/chars)
+- [x] Body proportions + sizes per reaper (Body* columns, ApplyBodyShape), HitRadius, gait personalities
+- [x] Showroom / lobby on the native anim instance (own idle, gait, body, size)
+- [x] Kit overlaps removed; ability Mods (Charges, Recast, Stacks, Trap, Detonate)
+- [x] Movement traits (21 unique), barks, bio / tip / difficulty / playstyle in the lobby kit panel
+- [x] FX iterations 9-10 for the reworked kits
+- [ ] Compile + test in Unreal (whole pass is uncompiled)
+- [ ] Signature-weapon balance pass (kits still outside the band: see Docs/Characters.md, Balance)
+- [ ] Voice: record the bark lines in Docs/Characters.md
+- [ ] Real per-character rigs for the quadruped / floating plans (werewolf on all fours, horseman's steed) - beyond bone scaling

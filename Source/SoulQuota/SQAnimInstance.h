@@ -72,6 +72,9 @@ public:
 	/** Per-character procedural gait (neutral profile = clips exactly as authored). */
 	void SetGait(const FSQGaitProfile& InGait) { GaitInput = InGait; }
 
+	/** Per-character body proportions (character pass; neutral = the mesh as modelled). Local visuals: call on every machine. */
+	void SetBody(const FSQBodyProfile& InBody) { BodyInput = InBody; }
+
 	/** First clip of Names that exists for this model (nullptr if none). */
 	UAnimSequence* FindFirstAnim(const TArray<FName>& Names);
 
@@ -204,6 +207,7 @@ private:
 
 	// Gait personality (copied into the proxy in PreUpdate) and the character's axes in mesh component space
 	FSQGaitProfile GaitInput;
+	FSQBodyProfile BodyInput;
 	FVector GaitAxisFwd = FVector::ForwardVector;
 	FVector GaitAxisRight = FVector::RightVector;
 	FVector GaitAxisUp = FVector::UpVector;

@@ -243,6 +243,12 @@ private:
 	// Extra bones for the gait layer (INDEX_NONE when the rig has no such bone)
 	int32 MeshChestBone = INDEX_NONE, MeshHeadBone = INDEX_NONE, MeshArmL = INDEX_NONE, MeshArmR = INDEX_NONE;
 	int32 CompactChest = INDEX_NONE, CompactHead = INDEX_NONE, CompactArmL = INDEX_NONE, CompactArmR = INDEX_NONE;
+	// Body proportions (character pass): legs and hands, plus the reference hip height used to keep the feet on the ground
+	int32 MeshLegL = INDEX_NONE, MeshLegR = INDEX_NONE, MeshHandL = INDEX_NONE, MeshHandR = INDEX_NONE;
+	int32 CompactLegL = INDEX_NONE, CompactLegR = INDEX_NONE, CompactHandL = INDEX_NONE, CompactHandR = INDEX_NONE;
+	float RefHipHeight = 0.f; // component units, the upper leg joint's height above the root in the reference pose
+	FSQBodyProfile BodyProfile;
+	void ApplyBodyShape(FCompactPose& Pose);
 };
 
 void FSQAnimInstanceProxy::Interrupt(FActionSlot& Slot)
@@ -308,6 +314,7 @@ void FSQAnimInstanceProxy::PreUpdate(UAnimInstance* InAnimInstance, float DeltaS
 	const float WalkCycles = LenWalk > UE_KINDA_SMALL_NUMBER ? WalkRate / LenWalk : 0.f;
 	const float RunCycles = LenRun > UE_KINDA_SMALL_NUMBER ? RunRate / LenRun : WalkCycles;
 	GaitProfile = Inst->GaitInput;
+	BodyProfile = Inst->BodyInput;
 	GaitFwd = Inst->GaitAxisFwd;
 	GaitRight = Inst->GaitAxisRight;
 	GaitUp = Inst->GaitAxisUp;
@@ -434,6 +441,8 @@ void FSQAnimInstanceProxy::RefreshBoneCache(const FCompactPose& Pose)
 		MeshArmL = INDEX_NONE;
 		MeshArmR = INDEX_NONE;
 		bArmNeutralValid = false;
+		MeshLegL = MeshLegR = MeshHandL = MeshHandR = INDEX_NONE;
+		RefHipHeight = 0.f;
 		for (int32 i = 0; i < NumMesh; ++i)
 		{
 			const FString BoneName = RefSk.GetBoneName(i).ToString().ToLower();
@@ -448,6 +457,33 @@ void FSQAnimInstanceProxy::RefreshBoneCache(const FCompactPose& Pose)
 				if (MeshArmL == INDEX_NONE && (BoneName.EndsWith(TEXT(".l")) || BoneName.EndsWith(TEXT("_l")) || BoneName.Contains(TEXT("left")))) MeshArmL = i;
 				if (MeshArmR == INDEX_NONE && (BoneName.EndsWith(TEXT(".r")) || BoneName.EndsWith(TEXT("_r")) || BoneName.Contains(TEXT("right")))) MeshArmR = i;
 			}
+			// Body proportions: KayKit upperleg.l/.r and hand.l/.r (not handslot, not the IK helpers)
+			const bool bLeftSide = BoneName.EndsWith(TEXT(".l")) || BoneName.EndsWith(TEXT("_l"));
+			const bool bRightSide = BoneName.EndsWith(TEXT(".r")) || BoneName.EndsWith(TEXT("_r"));
+			if (BoneName.StartsWith(TEXT("upperleg")) || BoneName.StartsWith(TEXT("upper_leg")) || BoneName.StartsWith(TEXT("thigh")))
+			{
+				if (bLeftSide && MeshLegL == INDEX_NONE) MeshLegL = i;
+				if (bRightSide && MeshLegR == INDEX_NONE) MeshLegR = i;
+			}
+			if (BoneName.StartsWith(TEXT("hand")) && !BoneName.Contains(TEXT("slot")) && !BoneName.Contains(TEXT("ik")))
+			{
+				if (bLeftSide && MeshHandL == INDEX_NONE) MeshHandL = i;
+				if (bRightSide && MeshHandR == INDEX_NONE) MeshHandR = i;
+			}
+		}
+		// Reference hip height: the upper leg joint's component-space position, accumulated up the reference chain
+		if (MeshLegL != INDEX_NONE)
+		{
+			const TArray<FTransform>& RefPose = RefSk.GetRefBonePose();
+			FTransform Acc = RefPose.IsValidIndex(MeshLegL) ? RefPose[MeshLegL] : FTransform::Identity;
+			int32 Parent = RefSk.GetParentIndex(MeshLegL);
+			int32 Guard = 0;
+			while (Parent != INDEX_NONE && RefPose.IsValidIndex(Parent) && Guard++ < 256)
+			{
+				Acc = Acc * RefPose[Parent];
+				Parent = RefSk.GetParentIndex(Parent);
+			}
+			RefHipHeight = FMath::Max(0.f, static_cast<float>(Acc.GetLocation().Z));
 		}
 		if (MeshHeadBone == INDEX_NONE)
 		{
@@ -480,6 +516,7 @@ void FSQAnimInstanceProxy::RefreshBoneCache(const FCompactPose& Pose)
 	CompactHead = INDEX_NONE;
 	CompactArmL = INDEX_NONE;
 	CompactArmR = INDEX_NONE;
+	CompactLegL = CompactLegR = CompactHandL = CompactHandR = INDEX_NONE;
 	for (const FCompactPoseBoneIndex BoneIndex : Pose.ForEachBoneIndex())
 	{
 		const int32 MeshIndex = BoneCont.MakeMeshPoseIndex(BoneIndex).GetInt();
@@ -491,6 +528,40 @@ void FSQAnimInstanceProxy::RefreshBoneCache(const FCompactPose& Pose)
 		if (MeshIndex == MeshHeadBone) CompactHead = C;
 		if (MeshIndex == MeshArmL) CompactArmL = C;
 		if (MeshIndex == MeshArmR) CompactArmR = C;
+		if (MeshIndex == MeshLegL) CompactLegL = C;
+		if (MeshIndex == MeshLegR) CompactLegR = C;
+		if (MeshIndex == MeshHandL) CompactHandL = C;
+		if (MeshIndex == MeshHandR) CompactHandR = C;
+	}
+}
+
+void FSQAnimInstanceProxy::ApplyBodyShape(FCompactPose& Pose)
+{
+	const FSQBodyProfile& B = BodyProfile;
+	if (B.IsNeutral()) return;
+	const int32 NumPoseBones = Pose.GetNumBones();
+	auto ScaleBone = [&Pose, NumPoseBones](int32 Compact, float Scale)
+	{
+		if (Compact == INDEX_NONE || Compact >= NumPoseBones || FMath::IsNearlyEqual(Scale, 1.f)) return;
+		FTransform& Local = Pose[FCompactPoseBoneIndex(Compact)];
+		Local.SetScale3D(Local.GetScale3D() * Scale);
+	};
+	// Effective sizes -> local scales (a child inherits its parents' scale)
+	const bool bHasChest = CompactChest != INDEX_NONE;
+	const float Upper = FMath::Max(0.1f, B.Torso * (bHasChest ? B.Chest : 1.f));
+	ScaleBone(CompactSpine, B.Torso);
+	if (bHasChest) ScaleBone(CompactChest, B.Chest);
+	ScaleBone(CompactHead, B.Head / Upper);
+	ScaleBone(CompactArmL, B.Arms / Upper);
+	ScaleBone(CompactArmR, B.Arms / Upper);
+	ScaleBone(CompactHandL, B.Hands);
+	ScaleBone(CompactHandR, B.Hands);
+	ScaleBone(CompactLegL, B.Legs);
+	ScaleBone(CompactLegR, B.Legs);
+	// Longer legs lift the body, shorter legs lower it: move the root along up so the feet stay on the ground
+	if (!FMath::IsNearlyEqual(B.Legs, 1.f) && RefHipHeight > 0.f && (CompactLegL != INDEX_NONE || CompactLegR != INDEX_NONE))
+	{
+		SQAnimPose::TranslateInComponentSpace(Pose, FCompactPoseBoneIndex(0), GaitUp * ((B.Legs - 1.f) * RefHipHeight));
 	}
 }
 
@@ -792,6 +863,8 @@ bool FSQAnimInstanceProxy::Evaluate(FPoseContext& Output)
 		if (CompactSpine != INDEX_NONE && CompactSpine < WobbleBones) SQAnimPose::RotateInComponentSpace(Pose, FCompactPoseBoneIndex(CompactSpine), SQAnimPose::TiltToward(GaitUp, -GaitFwd, HitWobble));
 		if (CompactHead != INDEX_NONE && CompactHead < WobbleBones) SQAnimPose::RotateInComponentSpace(Pose, FCompactPoseBoneIndex(CompactHead), SQAnimPose::TiltToward(GaitUp, GaitRight, HitWobble * 0.6f * HitSide));
 	}
+	// 6. Body proportions last, so every rotation above works on the modelled skeleton (character pass)
+	ApplyBodyShape(Pose);
 	return true;
 }
 

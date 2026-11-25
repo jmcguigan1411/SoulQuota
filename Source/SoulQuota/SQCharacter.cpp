@@ -661,9 +661,53 @@ void ASQCharacter::RecomputeStats()
 	ApplySpeed();
 }
 
+void ASQCharacter::Bark(FName Event)
+{
+	const UWorld* World = GetWorld();
+	const USQData* D = USQData::Get(this);
+	const FSQReaperDef* R = D ? D->FindReaper(ReaperId) : nullptr;
+	if (!World || !R || (D && D->Tune(TEXT("BarksEnabled"), 1.f) < 0.5f)) return;
+	const TArray<FString>* Lines = R->Barks.Find(Event);
+	if (!Lines || Lines->Num() == 0) return;
+	const double NowT = World->GetTimeSeconds();
+	// Revives and victories always speak; the rest wait out a gap so the crew isn't chattering
+	const bool bImportant = Event == TEXT("Revive") || Event == TEXT("Victory") || Event == TEXT("Boss");
+	if (!bImportant && NowT < BarkNextAllowed) return;
+	BarkLine = (*Lines)[FMath::RandRange(0, Lines->Num() - 1)];
+	BarkAt = NowT;
+	BarkNextAllowed = NowT + (D ? D->Tune(TEXT("BarkGapSeconds"), 9.f) : 9.f);
+}
+
+void ASQCharacter::TickBarks()
+{
+	const UWorld* World = GetWorld();
+	if (!World || GetNetMode() == NM_DedicatedServer) return;
+	const ASQGameState* GS = World->GetGameState<ASQGameState>();
+	const float Frac = Health / FMath::Max(1.f, Stats.MaxHealth);
+	if (!bDowned && Frac < 0.3f && BarkPrevHealthFrac >= 0.3f) Bark(TEXT("LowHealth"));
+	BarkPrevHealthFrac = Frac;
+	if (bBarkPrevDowned && !bDowned) Bark(TEXT("Revive"));
+	bBarkPrevDowned = bDowned;
+	if (GS)
+	{
+		// Team events: only the local player's reaper speaks, so four reapers don't say it at once
+		const bool bLocal = IsLocallyControlled();
+		if (BarkPrevLevel >= 0 && GS->TeamLevel > BarkPrevLevel && bLocal) Bark(TEXT("Level"));
+		BarkPrevLevel = GS->TeamLevel;
+		const uint8 PhaseNow = static_cast<uint8>(GS->Phase);
+		if (BarkPrevPhase != 255 && PhaseNow != BarkPrevPhase)
+		{
+			if (GS->Phase == ESQPhase::Boss && bLocal) Bark(TEXT("Boss"));
+			if (GS->Phase == ESQPhase::Victory && !bDowned) Bark(TEXT("Victory"));
+		}
+		BarkPrevPhase = PhaseNow;
+	}
+}
+
 void ASQCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	TickBarks();
 
 	DashCooldownLeft = FMath::Max(0.f, DashCooldownLeft - DeltaSeconds);
 	DashPassLeft = FMath::Max(0.f, DashPassLeft - DeltaSeconds);
@@ -1792,6 +1836,7 @@ void ASQCharacter::DoDash(const FVector& Direction)
 {
 	const USQData* D = USQData::Get(this);
 	const float Speed = D ? D->Tune(TEXT("DashSpeed"), 1800.f) : 1800.f;
+	if (Abilities) Abilities->NoteDash(); // character pass: AfterDash traits (every machine that runs the dash)
 	if (HasAuthority() && Abilities)
 	{
 		// Kit dash passives (Hollow Monk's strike, Tallow's wax trail) run in the ability component
@@ -2035,6 +2080,8 @@ void ASQCharacter::ApplyBodyBlock(FVector& InOutVelocity, float DeltaTime) const
 	const ASQHordeManager* BlockHorde = BlockGS ? BlockGS->Horde.Get() : nullptr;
 	const USQData* BlockData = USQData::Get(this);
 	if (!BlockHorde || !BlockData || BlockData->Tune(TEXT("BodyBlockEnabled"), 1.f) < 0.5f) return;
+	// Character pass: Phase traits walk through the horde
+	if (Abilities && Abilities->IsPhasing()) return;
 
 	const float BodyRadius = ASQHordeManager::ReaperBodyRadius(this, BlockData); // collision pass: the capsule radius
 	const float ContactSkin = FMath::Max(0.f, BlockData->Tune(TEXT("BodyBlockSkin"), 6.f));
@@ -3178,6 +3225,12 @@ void ASQCharacter::ApplyVisuals()
 	bHasSkin = Skel != nullptr;
 	if (bHasSkin)
 	{
+		// Character pass: per-reaper collision radius (Reapers.csv HitRadius); the height stays 90 so the camera and the
+		// skin offset are unchanged
+		if (R && GetCapsuleComponent() && !FMath::IsNearlyEqual(GetCapsuleComponent()->GetUnscaledCapsuleRadius(), R->HitRadius, 0.5f))
+		{
+			GetCapsuleComponent()->SetCapsuleRadius(R->HitRadius);
+		}
 		// Per-reaper size (Reapers.csv ArtScale): two reapers can share a model and still differ in silhouette
 		const float Height = (D ? D->Tune(TEXT("ReaperArtHeight"), 190.f) : 190.f) * (R ? R->ArtScale : 1.f);
 		const float WantScale = SQArt::FitScale(Skel, Height);
@@ -3940,12 +3993,15 @@ void ASQCharacter::ApplyAnimStyle(USQAnimInstance* SkinAnim)
 	{
 		SkinAnim->SetStyle(R->IdleAnims, R->WalkAnims, R->RunAnims, ReaperId);
 		SkinAnim->SetGait(R->Gait);
-		SkinAnim->SetGroundScale(R->ArtScale);
+		SkinAnim->SetBody(R->Body);
+		// Ground speed follows the leg length too: longer legs take longer strides
+		SkinAnim->SetGroundScale(R->ArtScale * R->Body.Legs);
 	}
 	else
 	{
 		SkinAnim->SetStyle(TArray<FName>(), TArray<FName>(), TArray<FName>(), ReaperId);
 		SkinAnim->SetGait(FSQGaitProfile());
+		SkinAnim->SetBody(FSQBodyProfile());
 		SkinAnim->SetGroundScale(1.f);
 	}
 }

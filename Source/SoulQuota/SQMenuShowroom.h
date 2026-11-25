@@ -125,6 +125,10 @@ private:
 	void PlayIdle();
 	/** Plays a one-shot animation, then back to Idle. False if the animation is missing. */
 	bool PlayOnce(UAnimSequence* AnimSeq);
+	/** Character pass: plays the first take of Names that exists for the shown reaper (own SQ_*_<Id> takes first) */
+	bool PlayOnceNamed(std::initializer_list<FName> Names);
+	/** The reaper's native anim instance (own idle, gait and body proportions, same as in a run), when it is in use */
+	class USQAnimInstance* ShowAnim() const;
 	FName ReaperModel() const;
 
 	UPROPERTY(Transient)
@@ -163,6 +167,8 @@ private:
 	float Clock = 0.f;
 	/** Seconds left of a one-shot animation (0 = idling), and when the next idle fidget plays. */
 	float OneShotLeft = 0.f;
+	/** Shown reaper's display height (cm): ReaperHeight x ArtScale^ShowroomScalePow (size contrast that still fits the frame) */
+	float ShowHeight = 190.f;
 	float NextFidget = 9.f;
 	/** When the reaper last changed or cheered (pop + hop). */
 	float PopAt = -100.f;

@@ -119,6 +119,15 @@ public:
 	float GetMoveSpeedMult() const;
 	/** Soul pickup pull range (Fetch makes it huge) */
 	float GetSoulMagnet(float NormalRange) const;
+
+	// --- Character pass (Nov 25): movement / stance trait (Reapers.csv Trait*), evaluated on every machine ---
+	/** 0..1: how strongly the reaper's trait applies right now (eased) */
+	float GetTraitAlpha() const { return TraitAlpha; }
+	/** Phase trait active: the horde does not body-block this reaper */
+	bool IsPhasing() const;
+	/** Every machine, from ASQCharacter::DoDash */
+	void NoteDash();
+	const struct FSQTraitDef* GetTrait() const;
 	FName GetPassiveId() const;
 	/** The passive's main number (P1): the horde reads it for Grief Tax (SlowSouls) */
 	float GetPassiveValue() const;
@@ -148,6 +157,10 @@ public:
 	UPROPERTY(Replicated) float BuffSpeedMult = 1.f;
 	/** Summoned posts for the visuals */
 	UPROPERTY(Replicated) TArray<FSQAbilityTotemNet> Totems;
+	/** Character pass: E charges left (Mod Charges) or E stacks (Mod Stacks), owner only; the HUD shows it on the E slot */
+	UPROPERTY(Replicated) uint8 ECounterNet = 0;
+	/** Character pass: true while a Recast E can be pressed again to snap back (owner only) */
+	UPROPERTY(Replicated) bool bRecastOpen = false;
 
 private:
 	ASQCharacter* GetReaper() const;
@@ -209,7 +222,7 @@ private:
 	bool CommitCast(int32 Idx, const FVector& AimPoint);
 	bool MoveOwner(const FVector2D& To);
 
-	enum class EPendingKind : uint8 { Impact, Zone, Drop, Wave, Aura, Beam, Echo, Totem };
+	enum class EPendingKind : uint8 { Impact, Zone, Drop, Wave, Aura, Beam, Echo, Totem, Trap, Detonate };
 	struct FPending
 	{
 		EPendingKind Kind = EPendingKind::Impact;
@@ -255,6 +268,32 @@ private:
 	void ReduceCooldown(int32 Idx, float Seconds);
 	int32 KillCounter = 0;
 	int32 CastCounter = 0;
+	// Character pass: trait state (every machine)
+	float TraitAlpha = 0.f;
+	float TraitLastDashAt = -100.f;
+	float TraitLastCastAt = -100.f;
+	float TraitMoveHeld = 0.f;
+	float TraitStillHeld = 0.f;
+	float TraitShoveTimer = 0.f;
+	float TraitCheckTimer = 0.f;
+	bool bTraitCondCached = false;
+	void TickTrait(float DeltaTime);
+	bool EvalTraitCond(const struct FSQTraitDef& T, float NowLocal);
+	// Character pass: E mods (server)
+	int32 ECharges = -1;          // -1 = not initialised for this kit yet
+	float NextChargeAt = 0.f;
+	float RecastUntil = 0.f;
+	float RecastCooldownAt = 0.f;
+	FVector2D RecastPos = FVector2D::ZeroVector;
+	FVector RecastAim = FVector::ZeroVector;
+	int32 EStacks = 0;
+	float EStackUntil = 0.f;
+	/** E mods: refills charges and closes an expired recast window (server, every tick) */
+	void TickEMods();
+	/** Recast: snap back to RecastPos and hit there */
+	void DoRecast();
+	/** Trap / Detonate follow-ups for a cast that just executed (server) */
+	void QueueModFollowUps(const FCast& C, const FSQAbilityDef& A);
 	float PassiveTimer = 0.f;
 	float PassiveFxTimer = 0.f;
 	float PassiveAnimTimer = 0.f;

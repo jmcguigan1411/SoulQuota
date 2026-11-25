@@ -18,6 +18,7 @@
 #include "SQArena.h"
 #include "SQAnimInstance.h"
 #include "SQAugments.h"
+#include "SQLantern.h"
 #include "GameFramework/PlayerState.h"
 
 // ---------------------------------------------------------------- helpers (prefixed: unity build)
@@ -131,6 +132,8 @@ void USQAbilityComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME_CONDITION(USQAbilityComponent, UltCharge, COND_OwnerOnly);
 	DOREPLIFETIME(USQAbilityComponent, BuffSpeedMult);
 	DOREPLIFETIME(USQAbilityComponent, Totems);
+	DOREPLIFETIME_CONDITION(USQAbilityComponent, ECounterNet, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(USQAbilityComponent, bRecastOpen, COND_OwnerOnly);
 }
 
 ASQCharacter* USQAbilityComponent::GetReaper() const
@@ -302,6 +305,14 @@ void USQAbilityComponent::ResetForRun()
 	ReviveTarget.Reset();
 	ReviveChannel = 0.f;
 	AimingSlot = 255;
+	ECharges = -1;
+	NextChargeAt = 0.f;
+	RecastUntil = 0.f;
+	RecastCooldownAt = 0.f;
+	EStacks = 0;
+	EStackUntil = 0.f;
+	ECounterNet = 0;
+	bRecastOpen = false;
 }
 
 // ---------------------------------------------------------------- tick
@@ -312,10 +323,12 @@ void USQAbilityComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	ASQCharacter* R = GetReaper();
 	if (!R) return;
 	LocalCastGate = FMath::Max(0.f, LocalCastGate - DeltaTime);
+	TickTrait(DeltaTime);
 
 	if (R->HasAuthority())
 	{
 		TickBuffs();
+		TickEMods();
 		const ASQGameState* GS = GetGS();
 		const bool bFightPhase = GS && (GS->Phase == ESQPhase::Night || GS->Phase == ESQPhase::Boss);
 		if (!bFightPhase)
@@ -387,22 +400,63 @@ bool USQAbilityComponent::CommitCast(int32 Idx, const FVector& AimPoint)
 	ASQCharacter* R = GetReaper();
 	if (!R || !R->HasAuthority() || !CanFightNow() || !IsUnlocked(Idx) || !GetHorde()) return false;
 	const USQData* D = USQData::Get(this);
+	// Character pass: E mods (Charges / Recast / Stacks)
+	const FSQAbilityDef* ModDef = GetAbility(Idx);
+	const FName EMod = (Idx == 0 && ModDef) ? ModDef->Mod : NAME_None;
+	if (EMod == TEXT("Recast") && RecastUntil > ServerNow())
+	{
+		DoRecast();
+		return true;
+	}
+	TickEMods();
+	const float Slack = SQAbTune(D, TEXT("AbilityCooldownSlack"), 0.2f);
+	if (EMod == TEXT("Charges"))
+	{
+		if (ECharges <= 0 || CooldownLeft(Idx) > Slack) return false;
+	}
 	// A little slack for the owner's view of the replicated cooldown. The R (reap core) needs a full charge instead.
-	if (Idx == 0 && CooldownLeft(Idx) > SQAbTune(D, TEXT("AbilityCooldownSlack"), 0.2f)) return false;
+	else if (Idx == 0 && CooldownLeft(Idx) > Slack) return false;
 	if (Idx == 1 && UltCharge < SQAbUltReady) return false;
 	const float Cd = ComputeCooldown(Idx);
+	float Strength = 1.f;
 	if (Idx == 0)
 	{
-		ReadyAtE = ServerNow() + Cd;
+		const float NowS = ServerNow();
+		ReadyAtE = NowS + Cd;
 		CooldownMaxE = Cd;
 		CooldownCutThisCycle = 0.f;
+		if (EMod == TEXT("Charges"))
+		{
+			if (ECharges >= FMath::Max(1, FMath::RoundToInt(ModDef->ModValue))) NextChargeAt = NowS + Cd; // the first spent charge starts recharging
+			ECharges--;
+			// Charges left: only a short lockout between casts
+			ReadyAtE = ECharges > 0 ? NowS + FMath::Max(0.2f, SQAbTune(D, TEXT("ChargeLockout"), 0.35f)) : NextChargeAt;
+			ECounterNet = static_cast<uint8>(FMath::Max(0, ECharges));
+		}
+		else if (EMod == TEXT("Recast"))
+		{
+			ASQCharacter* Self = GetReaper();
+			RecastPos = Self ? Self->Pos2D() : FVector2D::ZeroVector;
+			RecastAim = AimPoint;
+			RecastUntil = NowS + FMath::Max(0.5f, ModDef->ModTime);
+			RecastCooldownAt = NowS + Cd;
+			ReadyAtE = NowS + FMath::Max(0.2f, SQAbTune(D, TEXT("RecastLockout"), 0.3f));
+			bRecastOpen = true;
+		}
+		else if (EMod == TEXT("Stacks"))
+		{
+			EStacks = NowS <= EStackUntil ? FMath::Min(EStacks + 1, 3) : 0;
+			EStackUntil = NowS + FMath::Max(0.5f, ModDef->ModTime);
+			Strength = 1.f + ModDef->ModValue * static_cast<float>(EStacks);
+			ECounterNet = static_cast<uint8>(EStacks);
+		}
 	}
 	else
 	{
 		UltCharge = 0.f;
 		CooldownMaxR = SQAbUltScale;
 	}
-	ExecuteCast(Idx, ClampAim(Idx, AimPoint), false, 1.f);
+	ExecuteCast(Idx, ClampAim(Idx, AimPoint), false, Strength);
 	USQAugments::NotifyCast(R, static_cast<uint8>(Idx + SQAbSlotE));
 
 	// The Intern (Overeager): every Nth cast echoes
@@ -498,6 +552,11 @@ void USQAbilityComponent::ExecuteCast(int32 Idx, const FVector& AimPoint, bool b
 	case ESQAbilityShape::Circle:
 	case ESQAbilityShape::Nova:
 	case ESQAbilityShape::Global:
+		if (A->Mod == TEXT("Trap") && A->Shape == ESQAbilityShape::Circle)
+		{
+			// Character pass: armed at the target, goes off when an enemy comes near (QueueModFollowUps arms it)
+			break;
+		}
 		if (C.Delay > 0.f)
 		{
 			// Pulls start at once: the crowd gathers during the wind-up
@@ -639,6 +698,8 @@ void USQAbilityComponent::ExecuteCast(int32 Idx, const FVector& AimPoint, bool b
 		if (C.Effects & SQAbilityFx::Empower) ReceiveBuff(SQAbilityFx::Empower, C.EffectValue, BuffTime);
 		if (C.Effects & SQAbilityFx::Fortify) ReceiveBuff(SQAbilityFx::Fortify, C.EffectValue, BuffTime);
 		if (C.Effects & SQAbilityFx::Haste) ApplyAllyEffects(C.Origin, C.Radius, SQAbilityFx::Haste, C.EffectValue, BuffTime, true);
+		// Character pass: a shield for the crew around him (Closed Casket)
+		if (C.Effects & SQAbilityFx::Shield) ApplyAllyEffects(C.Origin, C.Radius, SQAbilityFx::Shield, C.EffectValue, BuffTime, true);
 		if (C.EvoEffects) ApplyAllyEffects(C.Origin, C.Radius, C.EvoEffects & SQAbAllyBits, C.EvoValue, C.EvoTime > 0.f ? C.EvoTime : BuffTime, true);
 		FPending Aura;
 		Aura.Kind = EPendingKind::Aura;
@@ -655,6 +716,110 @@ void USQAbilityComponent::ExecuteCast(int32 Idx, const FVector& AimPoint, bool b
 
 	default:
 		break;
+	}
+	if (!bEcho && !A->Mod.IsNone()) QueueModFollowUps(C, *A);
+}
+
+// ---------------------------------------------------------------- character pass: ability mods (server)
+
+void USQAbilityComponent::TickEMods()
+{
+	const FSQAbilityDef* A = GetAbility(0);
+	const FName Mod = A ? A->Mod : NAME_None;
+	const float NowS = ServerNow();
+	if (Mod == TEXT("Charges"))
+	{
+		const int32 MaxCharges = FMath::Max(1, FMath::RoundToInt(A->ModValue));
+		if (ECharges < 0 || ECharges > MaxCharges) { ECharges = MaxCharges; NextChargeAt = 0.f; }
+		while (ECharges < MaxCharges && NextChargeAt > 0.f && NowS >= NextChargeAt)
+		{
+			ECharges++;
+			const float Cd = ComputeCooldown(0);
+			NextChargeAt = ECharges < MaxCharges ? NextChargeAt + Cd : 0.f;
+			if (ECharges == 1) ReadyAtE = FMath::Min(ReadyAtE, NowS); // back from empty: castable again
+			if (ECharges < MaxCharges) CooldownMaxE = Cd;
+		}
+		ECounterNet = static_cast<uint8>(FMath::Max(0, ECharges));
+	}
+	else if (Mod == TEXT("Recast"))
+	{
+		if (RecastUntil > 0.f && NowS > RecastUntil)
+		{
+			// Window missed: the cooldown that started with the first cast carries on
+			RecastUntil = 0.f;
+			ReadyAtE = FMath::Max(ReadyAtE, RecastCooldownAt);
+			bRecastOpen = false;
+		}
+	}
+	else if (Mod == TEXT("Stacks"))
+	{
+		if (EStacks > 0 && NowS > EStackUntil) { EStacks = 0; ECounterNet = 0; }
+	}
+}
+
+void USQAbilityComponent::DoRecast()
+{
+	ASQCharacter* R = GetReaper();
+	ASQHordeManager* Horde = GetHorde();
+	const FSQAbilityDef* A = GetAbility(0);
+	if (!R || !Horde || !A) return;
+	const FVector2D From = R->Pos2D();
+	RecastUntil = 0.f;
+	bRecastOpen = false;
+	ReadyAtE = RecastCooldownAt;
+	FCast C;
+	if (!BuildCast(0, SQAbGround(this, RecastPos), false, FMath::Max(0.1f, A->ModValue), C)) return;
+	C.Origin = From;
+	C.Target = RecastPos;
+	MoveOwner(RecastPos);
+	MulticastCast(SQAbSlotE, FVector_NetQuantize(SQAbGround(this, From)), FVector_NetQuantize(SQAbGround(this, RecastPos)), C.bEvo ? 1 : 0);
+	const float Radius = FMath::Max(C.Radius, 220.f);
+	const int32 Hits = HitCircle(C, RecastPos, Radius, C.Damage, C.Effects & ~SQAbAllyBits, C.EffectTime, C.EffectValue, FVector2D::ZeroVector);
+	// the way back hurts too
+	Horde->ApplyLineDamage(From, RecastPos, FMath::Max(60.f, C.Width), C.Damage * 0.5f, R, (C.Effects & SQAbilityFx::Slow) ? C.EffectTime : 0.f);
+	if (Hits > 0) AddAreaPops(RecastPos, Radius, C.Damage, C.Crit, 5);
+	MulticastAbilityHit(3, FVector_NetQuantize(SQAbGround(this, RecastPos)), Radius, C.Color, 0.4f);
+}
+
+void USQAbilityComponent::QueueModFollowUps(const FCast& C, const FSQAbilityDef& A)
+{
+	if (A.Mod == TEXT("Trap") && A.Shape == ESQAbilityShape::Circle)
+	{
+		const int32 MaxArmed = FMath::Max(1, FMath::RoundToInt(A.ModValue));
+		int32 Armed = 0;
+		int32 Oldest = INDEX_NONE;
+		for (int32 PendIdx = 0; PendIdx < Pending.Num(); ++PendIdx)
+		{
+			if (Pending[PendIdx].Kind == EPendingKind::Trap && Pending[PendIdx].Cast.Idx == C.Idx)
+			{
+				if (Oldest == INDEX_NONE) Oldest = PendIdx;
+				Armed++;
+			}
+		}
+		if (Armed >= MaxArmed && Oldest != INDEX_NONE) Pending[Oldest].Life = 0.f; // the oldest goes off now
+		FPending Trap;
+		Trap.Kind = EPendingKind::Trap;
+		Trap.Cast = C;
+		Trap.Pos = C.Target;
+		Trap.Life = FMath::Max(1.f, A.ModTime);
+		Trap.TimeLeft = 0.4f; // arming time
+		Pending.Add(Trap);
+		MulticastAbilityHit(1, FVector_NetQuantize(SQAbGround(this, C.Target)), C.Radius * 0.55f, C.Color, Trap.Life);
+	}
+	else if (A.Mod == TEXT("Detonate"))
+	{
+		const int32 Bursts = FMath::Clamp(FMath::RoundToInt(A.ModValue), 1, 6);
+		const float Gap = FMath::Max(0.2f, A.ModTime);
+		for (int32 BurstIdx = 0; BurstIdx < Bursts; ++BurstIdx)
+		{
+			FPending Burst;
+			Burst.Kind = EPendingKind::Detonate;
+			Burst.Cast = C;
+			Burst.Pos = C.Target;
+			Burst.TimeLeft = Gap * static_cast<float>(BurstIdx + 1);
+			Pending.Add(Burst);
+		}
+		MulticastAbilityHit(1, FVector_NetQuantize(SQAbGround(this, C.Target)), C.Radius > 0.f ? C.Radius : 250.f, C.Color, Gap);
 	}
 }
 
@@ -975,6 +1140,8 @@ void USQAbilityComponent::TickPending(float DeltaTime)
 			{
 				P.TickLeft += C.Tick;
 				HitCircle(C, P.Pos, C.Radius, C.Damage, C.Effects & ~SQAbAllyBits, C.EffectTime, C.EffectValue, FVector2D::ZeroVector);
+				// Character pass: a zone can tend reapers standing in it (heal per tick, shields / buffs refreshed)
+				if (C.Effects & SQAbAllyBits) ApplyAllyEffects(P.Pos, C.Radius, C.Effects & SQAbAllyBits & ~SQAbilityFx::Revive, C.EffectValue, C.Tick * 2.f + 0.1f, true);
 			}
 			if (P.Life <= 0.f)
 			{
@@ -1072,6 +1239,38 @@ void USQAbilityComponent::TickPending(float DeltaTime)
 			}
 			break;
 		}
+		case EPendingKind::Trap:
+		{
+			P.Life -= DeltaTime;
+			P.TimeLeft -= DeltaTime;
+			FVector2D Near;
+			const bool bTriggered = P.TimeLeft <= 0.f && Horde->FindNearestEnemyAnyMachine(P.Pos, C.Radius * 0.55f, Near);
+			if (bTriggered || P.Life <= 0.f)
+			{
+				const uint32 EnemyBits = C.Effects & ~SQAbAllyBits;
+				const int32 Hits = HitCircle(C, P.Pos, C.Radius, C.Damage, EnemyBits, C.EffectTime, C.EffectValue, FVector2D::ZeroVector);
+				ApplyAllyEffects(P.Pos, C.Radius, C.Effects & SQAbAllyBits, C.EffectValue, C.EffectTime, true);
+				ApplyEvo(C, P.Pos, C.Radius, FVector2D::ZeroVector);
+				if (Hits > 0) AddAreaPops(P.Pos, C.Radius, C.Damage, C.Crit, 6);
+				MulticastAbilityHit(3, FVector_NetQuantize(SQAbGround(this, P.Pos)), C.Radius, C.Color, 0.45f);
+				Done.Add(PendIdx);
+			}
+			break;
+		}
+
+		case EPendingKind::Detonate:
+			P.TimeLeft -= DeltaTime;
+			if (P.TimeLeft <= 0.f)
+			{
+				const float BurstRadius = C.Radius > 0.f ? C.Radius : 250.f;
+				const float BurstDamage = C.Final > 0.f ? C.Final : C.Damage;
+				const int32 Hits = HitCircle(C, P.Pos, BurstRadius, BurstDamage, C.Effects & ~(SQAbAllyBits | SQAbilityFx::Pull), C.EffectTime, C.EffectValue, FVector2D::ZeroVector);
+				if (Hits > 0) AddAreaPops(P.Pos, BurstRadius, BurstDamage, C.Crit, 6);
+				MulticastAbilityHit(3, FVector_NetQuantize(SQAbGround(this, P.Pos)), BurstRadius, C.Color, 0.4f);
+				Done.Add(PendIdx);
+			}
+			break;
+
 		default:
 			Done.Add(PendIdx);
 			break;
@@ -1165,7 +1364,122 @@ float USQAbilityComponent::GetOutgoingDamageMult() const
 			Mult *= 1.f + FMath::Max(0.f, Kit->P[0]) * Missing;
 		}
 	}
+	if (const FSQTraitDef* T = GetTrait())
+	{
+		if (T->Effect == TEXT("Damage")) Mult *= 1.f + T->Value * TraitAlpha;
+	}
 	return Mult;
+}
+
+// ---------------------------------------------------------------- character pass: traits (every machine)
+
+const FSQTraitDef* USQAbilityComponent::GetTrait() const
+{
+	const ASQCharacter* R = GetReaper();
+	const USQData* D = USQData::Get(this);
+	const FSQReaperDef* Def = (R && D) ? D->FindReaper(R->ReaperId) : nullptr;
+	return (Def && Def->Trait.IsSet()) ? &Def->Trait : nullptr;
+}
+
+bool USQAbilityComponent::IsPhasing() const
+{
+	const FSQTraitDef* T = GetTrait();
+	return T && T->Effect == TEXT("Phase") && TraitAlpha > 0.5f;
+}
+
+void USQAbilityComponent::NoteDash()
+{
+	TraitLastDashAt = Now();
+}
+
+bool USQAbilityComponent::EvalTraitCond(const FSQTraitDef& T, float NowLocal)
+{
+	const ASQCharacter* R = GetReaper();
+	if (!R || R->bDowned) return false;
+	const FName Cond = T.Cond;
+	if (Cond == TEXT("Always")) return true;
+	if (Cond == TEXT("AfterDash")) return NowLocal - TraitLastDashAt <= FMath::Max(0.1f, T.Time);
+	if (Cond == TEXT("AfterCast")) return NowLocal - TraitLastCastAt <= FMath::Max(0.1f, T.Time);
+	if (Cond == TEXT("Moving")) return TraitMoveHeld >= T.Time;
+	if (Cond == TEXT("Still")) return TraitStillHeld >= T.Time;
+	if (Cond == TEXT("Carrying"))
+	{
+		return R->Carried > 0; // strength scales with the sack below
+	}
+	if (Cond == TEXT("LowHealth")) return R->Health < R->Stats.MaxHealth * 0.4f;
+	if (Cond == TEXT("NearAlly") || Cond == TEXT("Alone") || Cond == TEXT("AllyDowned"))
+	{
+		const float Range = Cond == TEXT("Alone") ? 1200.f : 700.f;
+		bool bNear = false, bDown = false;
+		for (TActorIterator<ASQCharacter> It(GetWorld()); It; ++It)
+		{
+			const ASQCharacter* Other = *It;
+			if (!Other || Other == R) continue;
+			if (Other->bDowned) bDown = true;
+			else if (FVector::Dist2D(Other->GetActorLocation(), R->GetActorLocation()) <= Range) bNear = true;
+		}
+		if (Cond == TEXT("AllyDowned")) return bDown;
+		return Cond == TEXT("NearAlly") ? bNear : !bNear;
+	}
+	if (Cond == TEXT("Crowd"))
+	{
+		const ASQHordeManager* Horde = GetHorde();
+		if (!Horde) return false;
+		FSQBodyContacts Contacts;
+		return Horde->GatherBodyContacts(R->Pos2D(), 260.f, 40.f, 0.f, Contacts) >= FMath::Max(1, FMath::RoundToInt(T.Time));
+	}
+	if (Cond == TEXT("NearLantern"))
+	{
+		const USQData* D = USQData::Get(this);
+		const float Range = SQAbTune(D, TEXT("TraitLanternRange"), 1600.f);
+		for (TActorIterator<ASQLantern> It(GetWorld()); It; ++It)
+		{
+			if (*It && FVector::Dist2D(It->GetActorLocation(), R->GetActorLocation()) <= Range) return true;
+		}
+		return false;
+	}
+	return false;
+}
+
+void USQAbilityComponent::TickTrait(float DeltaTime)
+{
+	ASQCharacter* R = GetReaper();
+	const FSQTraitDef* T = GetTrait();
+	if (!R || !T) { TraitAlpha = 0.f; return; }
+	const float Speed2D = static_cast<float>(R->GetVelocity().Size2D());
+	if (Speed2D > 120.f) { TraitMoveHeld += DeltaTime; TraitStillHeld = 0.f; }
+	else { TraitStillHeld += DeltaTime; TraitMoveHeld = FMath::Max(0.f, TraitMoveHeld - DeltaTime * 3.f); }
+	// Area checks (allies, crowd, lantern) every 0.2 s; timers every frame
+	TraitCheckTimer -= DeltaTime;
+	const bool bAreaCond = T->Cond == TEXT("NearAlly") || T->Cond == TEXT("Alone") || T->Cond == TEXT("AllyDowned") || T->Cond == TEXT("Crowd") || T->Cond == TEXT("NearLantern");
+	if (!bAreaCond || TraitCheckTimer <= 0.f)
+	{
+		TraitCheckTimer = 0.2f;
+		bTraitCondCached = EvalTraitCond(*T, Now());
+	}
+	float Want = bTraitCondCached ? 1.f : 0.f;
+	if (T->Cond == TEXT("Carrying") && bTraitCondCached)
+	{
+		Want = FMath::Clamp(static_cast<float>(R->Carried) / static_cast<float>(FMath::Max(1, R->Stats.CarryCap)), 0.f, 1.f);
+	}
+	TraitAlpha = FMath::FInterpTo(TraitAlpha, Want, DeltaTime, Want > TraitAlpha ? 6.f : 3.f);
+	if (TraitAlpha < 0.002f) TraitAlpha = Want > 0.f ? TraitAlpha : 0.f;
+
+	// Shove: the server pushes the horde aside in front of a moving reaper
+	if (T->Effect == TEXT("Shove") && R->HasAuthority() && TraitAlpha > 0.3f && Speed2D > 120.f)
+	{
+		TraitShoveTimer -= DeltaTime;
+		if (TraitShoveTimer <= 0.f)
+		{
+			TraitShoveTimer = 0.2f;
+			if (ASQHordeManager* Horde = GetHorde())
+			{
+				const FVector2D Dir = FVector2D(R->GetVelocity().X, R->GetVelocity().Y).GetSafeNormal();
+				const float Radius = 120.f + 160.f * T->Value;
+				Horde->ApplyKnockback(R->Pos2D() + Dir * (Radius * 0.6f), Radius, Dir, 600.f * TraitAlpha, 75.f);
+			}
+		}
+	}
 }
 
 float USQAbilityComponent::GetIncomingDamageMult() const
@@ -1189,7 +1503,13 @@ float USQAbilityComponent::GetIncomingDamageMult() const
 	}
 	// Close Ranks: and take a little less
 	const float RanksArmor = FMath::Clamp(SQAbTune(USQData::Get(this), TEXT("SquadAuraArmor"), 0.03f) * static_cast<float>(Me->SquadNear), 0.f, 0.3f);
-	return FMath::Max(0.2f, (1.f - FMath::Clamp(BestBulwark, 0.f, 0.6f)) * (1.f - FMath::Clamp(Fortify, 0.f, 0.6f)) * (1.f - RanksArmor));
+	// Character pass: a Fortify trait
+	float TraitArmor = 0.f;
+	if (const FSQTraitDef* T = GetTrait())
+	{
+		if (T->Effect == TEXT("Fortify")) TraitArmor = FMath::Clamp(T->Value * TraitAlpha, 0.f, 0.5f);
+	}
+	return FMath::Max(0.2f, (1.f - FMath::Clamp(BestBulwark, 0.f, 0.6f)) * (1.f - FMath::Clamp(Fortify, 0.f, 0.6f)) * (1.f - RanksArmor) * (1.f - TraitArmor));
 }
 
 float USQAbilityComponent::GetMoveSpeedMult() const
@@ -1198,6 +1518,10 @@ float USQAbilityComponent::GetMoveSpeedMult() const
 	const ASQCharacter* R = GetReaper();
 	const FSQKitDef* Kit = GetKit();
 	if (R && Kit && R->CarriedSkull && Kit->PassiveId == TEXT("Fetch")) Mult *= FMath::Max(1.f, Kit->P[1]);
+	if (const FSQTraitDef* T = GetTrait())
+	{
+		if (T->Effect == TEXT("Speed")) Mult *= 1.f + T->Value * TraitAlpha;
+	}
 	return Mult;
 }
 
@@ -1865,6 +2189,10 @@ bool USQAbilityComponent::GetAbilityView(uint8 Slot, FSQAbilityView& Out) const
 	const float LastMax = CooldownMaxE;
 	Out.CooldownMax = Out.Cooldown > 0.f && LastMax > 0.f ? LastMax : ComputeCooldown(Idx);
 	Out.bAiming = AimingSlot == Slot;
+	// Character pass: charges / stacks on the E slot, and an open recast shows as ready
+	const FSQAbilityDef* EDef = GetAbility(0);
+	if (EDef && (EDef->Mod == TEXT("Charges") || EDef->Mod == TEXT("Stacks"))) Out.Charges = ECounterNet;
+	if (EDef && EDef->Mod == TEXT("Recast") && bRecastOpen) Out.Cooldown = 0.f;
 	return true;
 }
 
@@ -2074,6 +2402,11 @@ void USQAbilityComponent::DrawBurst(const FVector& At, float Radius, const FLine
 
 void USQAbilityComponent::MulticastCast_Implementation(uint8 Slot, FVector_NetQuantize Origin, FVector_NetQuantize Target, uint8 Flags)
 {
+	if (Slot == 2 || Slot == 3) TraitLastCastAt = Now(); // character pass: AfterCast traits, on every machine
+	if (Slot == 3 && !(Flags & 2))
+	{
+		if (ASQCharacter* Caster = GetReaper()) Caster->Bark(TEXT("Combo")); // character pass: the R line
+	}
 	if (GetNetMode() == NM_DedicatedServer || (Slot != 2 && Slot != 3)) return;
 	UWorld* World = GetWorld();
 	const ASQCharacter* R = GetReaper();

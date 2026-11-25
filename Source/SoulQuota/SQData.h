@@ -89,6 +89,48 @@ struct FSQGaitProfile
 	float Hover = 0.f;    // cm the whole body floats off the ground (ghosts), with a gentle bob
 };
 
+/**
+ * Character pass (Nov 25): per-reaper body proportions on the shared rig (Reapers.csv Body* columns), applied by
+ * USQAnimInstance as uniform bone scales after the pose is built. Values are the EFFECTIVE size of each part
+ * (1 = as modelled): the anim instance divides out the parent scales, and lifts the root so longer / shorter legs
+ * still stand on the ground. Uniform scales only, so the result is the same whatever the bone axes are after import.
+ */
+struct FSQBodyProfile
+{
+	float Legs = 1.f;   // upper leg chain (leg length and foot size)
+	float Torso = 1.f;  // spine: everything above the hips
+	float Chest = 1.f;  // chest on top of Torso (shoulder width; arms and head are corrected back)
+	float Head = 1.f;   // final head size
+	float Arms = 1.f;   // final arm size (length and girth)
+	float Hands = 1.f;  // hands on top of Arms
+	bool IsNeutral() const
+	{
+		return FMath::IsNearlyEqual(Legs, 1.f) && FMath::IsNearlyEqual(Torso, 1.f) && FMath::IsNearlyEqual(Chest, 1.f)
+			&& FMath::IsNearlyEqual(Head, 1.f) && FMath::IsNearlyEqual(Arms, 1.f) && FMath::IsNearlyEqual(Hands, 1.f);
+	}
+	/** World size multiplier of something held in the hand (weapons attached to handslot inherit the bone scale) */
+	float HandWorldScale() const { return Arms * Hands; }
+};
+
+/**
+ * Character pass (Nov 25): every reaper's movement / stance trait (Reapers.csv Trait* columns). When Cond holds, Effect
+ * applies at Value (eased in and out). Cond: Always, AfterDash, AfterCast, Moving, Still, Carrying, LowHealth, NearAlly,
+ * Alone, Crowd, AllyDowned, NearLantern. Effect: Speed (+Value move speed), Fortify (-Value damage taken), Damage
+ * (+Value damage), Phase (walks through the horde), Shove (pushes the horde aside while moving).
+ * Time: seconds the condition must hold first (Moving / Still), or how long it lasts after the event (AfterDash / AfterCast),
+ * or the enemy count for Crowd. Evaluated on every machine from replicated state, so the owner predicts its speed.
+ */
+struct FSQTraitDef
+{
+	FString Name;
+	FName Cond;
+	FName Effect;
+	float Value = 0.f;
+	float Time = 0.f;
+	FString Text;
+	bool IsSet() const { return !Cond.IsNone() && !Effect.IsNone(); }
+};
+
 struct FSQReaperDef
 {
 	FName Id;
@@ -120,6 +162,17 @@ struct FSQReaperDef
 	 *  ("SQ_Walk_Swagger|Walking_C"). Empty = the model's default idle / walk / run. */
 	TArray<FName> IdleAnims, WalkAnims, RunAnims;
 	FSQGaitProfile Gait;
+	FSQBodyProfile Body;
+	/** Collision radius in cm (Reapers.csv HitRadius, default 40): small reapers are harder to hit, giants easier */
+	float HitRadius = 40.f;
+	FSQTraitDef Trait;
+	/** Character select copy: one-line bio, a play tip, a difficulty 1..3 and a playstyle tag */
+	FString Bio;
+	FString Tip;
+	int32 Difficulty = 1;
+	FString Playstyle;
+	/** Text barks (Reapers.csv Bark<Event>, '|'-separated variants): Level, LowHealth, Revive, Combo, Boss, Victory, Pickup */
+	TMap<FName, TArray<FString>> Barks;
 };
 
 /** Ability shapes (Kits.csv <Slot>_Shape; Docs/Kits.md). Keep new values at the end. */
@@ -172,6 +225,17 @@ struct FSQAbilityDef
 	float EvoValue = 0.f;
 	float EvoTime = 0.f;
 	FString EvoText;
+	/**
+	 * Character pass (Nov 25): how this ability plays beyond its shape (Kits.csv <Slot>_Mod / ModValue / ModTime). None by default.
+	 *   Charges  (E): ModValue charges; each recharges in one cooldown, one at a time
+	 *   Recast   (E): pressing again within ModTime snaps the reaper back to where it cast from, hitting there for ModValue x Damage
+	 *   Stacks   (E): each cast within ModTime of the last adds a stack (max 3) of +ModValue damage
+	 *   Trap     (Circle): arms at the target for ModTime and goes off when an enemy comes near; ModValue traps armed at most
+	 *   Detonate (any): ModValue extra bursts (FinalDamage, or Damage) at the target, ModTime apart
+	 */
+	FName Mod;
+	float ModValue = 0.f;
+	float ModTime = 0.f;
 	TArray<FName> Anims;     // cast take fallback list
 	FName Fx;                // flavour particles (Pillar, Embers, Shards, Smoke, Sparks, Ghost, Lightning, Stamp, Slash, Dust, Paper, Holy, Time, Blood, Streaks, Crows)
 	FLinearColor Color = FLinearColor::White;

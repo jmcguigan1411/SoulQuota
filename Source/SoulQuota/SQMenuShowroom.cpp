@@ -20,6 +20,7 @@
 #include "SQData.h"
 #include "SQUIStyle.h"
 #include "SQFx.h"
+#include "SQAnimInstance.h"
 #include "SQFxTheme.h"
 
 namespace
@@ -466,13 +467,42 @@ FName ASQMenuShowroom::ReaperModel() const
 	return Def ? Def->Model : NAME_None;
 }
 
+USQAnimInstance* ASQMenuShowroom::ShowAnim() const
+{
+	return ReaperMesh ? Cast<USQAnimInstance>(ReaperMesh->GetAnimInstance()) : nullptr;
+}
+
 void ASQMenuShowroom::PlayIdle()
 {
 	OneShotLeft = 0.f;
-	if (bHasArt)
+	if (!bHasArt) return;
+	// Character pass: the native anim instance idles on the reaper's own SQ_Idle_<Id> by itself
+	if (ShowAnim()) return;
+	SQArt::Play(ReaperMesh, SQArt::Anim(ReaperModel(), TEXT("Idle")), true);
+}
+
+bool ASQMenuShowroom::PlayOnceNamed(std::initializer_list<FName> Names)
+{
+	if (!bHasArt) return false;
+	USQAnimInstance* Anim = ShowAnim();
+	for (const FName& Name : Names)
 	{
-		SQArt::Play(ReaperMesh, SQArt::Anim(ReaperModel(), TEXT("Idle")), true);
+		if (Name.IsNone()) continue;
+		if (Anim)
+		{
+			UAnimSequence* Seq = SQArt::Anim(ReaperModel(), Name);
+			if (Seq && Anim->PlayAction(Name, 1.f, true, 0.12f, true))
+			{
+				OneShotLeft = FMath::Max(0.25f, static_cast<float>(Seq->GetPlayLength()) - 0.08f);
+				return true;
+			}
+		}
+		else if (PlayOnce(SQArt::Anim(ReaperModel(), Name)))
+		{
+			return true;
+		}
 	}
+	return false;
 }
 
 bool ASQMenuShowroom::PlayOnce(UAnimSequence* AnimSeq)
@@ -536,13 +566,31 @@ void ASQMenuShowroom::ShowReaper(FName ReaperId)
 
 	FallbackRobe->SetVisibility(false);
 	FallbackSkull->SetVisibility(false);
-	if (Model != ShownModel)
+	// Character pass: each reaper shows at its own size (compressed so a giant still fits the frame)
+	const float SizePow = D ? FMath::Clamp(D->Tune(TEXT("ShowroomScalePow"), 0.6f), 0.f, 1.f) : 0.6f;
+	const float WantHeight = ReaperHeight * FMath::Pow(Def ? FMath::Max(0.3f, Def->ArtScale) : 1.f, SizePow);
+	if (Model != ShownModel || !FMath::IsNearlyEqual(WantHeight, ShowHeight, 0.01f))
 	{
 		ShownModel = Model;
+		ShowHeight = WantHeight;
 		ReaperMesh->SetSkeletalMeshAsset(Skel);
-		BaseScale = SQArt::FitScale(Skel, ReaperHeight);
+		BaseScale = SQArt::FitScale(Skel, ShowHeight);
 		ReaperMesh->SetRelativeScale3D(FVector(BaseScale));
 		ReaperMesh->SetRelativeRotation(FRotator(0.f, SQArt::YawOffset(this), 0.f));
+	}
+	// Same native anim instance as in a run: the reaper's own idle, gait personality and body proportions
+	ReaperMesh->SetAnimInstanceClass(USQAnimInstance::StaticClass());
+	if (USQAnimInstance* Anim = ShowAnim())
+	{
+		Anim->SetAnimSet(Model);
+		if (Def)
+		{
+			Anim->SetStyle(Def->IdleAnims, Def->WalkAnims, Def->RunAnims, Def->Id);
+			Anim->SetGait(Def->Gait);
+			Anim->SetBody(Def->Body);
+			Anim->SetGroundScale(Def->ArtScale * Def->Body.Legs);
+		}
+		Anim->SetLocomotion(0.f, FVector::ZeroVector, 0.f, false, false, 0);
 	}
 	const FLinearColor Tint = SQArt::SoftTint(Colour, 0.7f);
 	if (!ReaperMID)
@@ -566,7 +614,10 @@ void ASQMenuShowroom::ShowReaper(FName ReaperId)
 		ReaperWeapon->SetStaticMesh(WeaponArt);
 		ReaperWeapon->AttachToComponent(ReaperMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
 		ReaperWeapon->SetRelativeTransform(FTransform::Identity);
-		ReaperWeapon->SetRelativeScale3D(FVector(SQArt::FitLongest(WeaponArt, 120.f) / FMath::Max(0.0001f, BaseScale)));
+		// Weapon at its in-run size (Reapers.csv WeaponSize), undoing the mesh and the hand bone's scale
+		const float WeaponLen = (Def && Def->WeaponSize > 0.f) ? Def->WeaponSize * FMath::Clamp(ShowHeight / FMath::Max(1.f, ReaperHeight * (Def ? Def->ArtScale : 1.f)), 0.5f, 1.5f) : 120.f;
+		const float HandScale = Def ? FMath::Max(0.1f, Def->Body.HandWorldScale()) : 1.f;
+		ReaperWeapon->SetRelativeScale3D(FVector(SQArt::FitLongest(WeaponArt, WeaponLen) / (FMath::Max(0.0001f, BaseScale) * HandScale)));
 		SQArt::SetAllMaterials(ReaperWeapon, ReaperMID);
 		ReaperWeapon->SetVisibility(true);
 	}
@@ -584,7 +635,7 @@ void ASQMenuShowroom::ShowReaper(FName ReaperId)
 	}
 	StartEntrance(ShownReaper);
 	const FName IntroTake(*FString::Printf(TEXT("SQ_Intro_%s"), *ShownReaper.ToString()));
-	if (!PlayOnce(SQArt::Anim(Model, IntroTake)) && !PlayOnce(SQArt::Anim(Model, TEXT("Spawn_Ground_Skeletons"))))
+	if (!PlayOnceNamed({ IntroTake, FName(TEXT("Spawn_Ground_Skeletons")) }))
 	{
 		PlayIdle();
 	}
@@ -617,7 +668,7 @@ void ASQMenuShowroom::StartEntrance(FName ReaperId)
 	const FVector Feet = ReaperRoot->GetComponentLocation();
 	FVector ToCamera = Camera->GetComponentLocation() - Feet;
 	ToCamera.Z = 0.0;
-	SQTheme::PlayEntrance(World, ReaperId, Feet, ToCamera.GetSafeNormal(), FMath::Clamp(ReaperHeight / 190.f, 0.4f, 2.f));
+	SQTheme::PlayEntrance(World, ReaperId, Feet, ToCamera.GetSafeNormal(), FMath::Clamp(ShowHeight / 190.f, 0.4f, 2.f));
 }
 
 void ASQMenuShowroom::EntranceTransform(FVector& OutScale, FVector& OutOffset, float& OutYaw)
@@ -633,7 +684,7 @@ void ASQMenuShowroom::EntranceTransform(FVector& OutScale, FVector& OutOffset, f
 	{
 	case SQTheme::EEntrance::Rise:
 		// climbs out of the ground, a small overshoot as it plants its feet
-		OutOffset.Z = -ReaperHeight * 1.05f * (1.f - EaseOut);
+		OutOffset.Z = -ShowHeight * 1.05f * (1.f - EaseOut);
 		break;
 	case SQTheme::EEntrance::Poof:
 	{
@@ -684,7 +735,7 @@ void ASQMenuShowroom::Celebrate()
 	NextFidget = Clock + 10.f;
 	if (bHasArt)
 	{
-		PlayOnce(SQArt::Anim(ReaperModel(), TEXT("Cheer")));
+		PlayOnceNamed({ FName(*FString::Printf(TEXT("SQ_Victory_%s"), *ShownReaper.ToString())), FName(TEXT("Cheer")) });
 	}
 }
 
@@ -706,7 +757,11 @@ void ASQMenuShowroom::Tick(float DeltaSeconds)
 	else if (bHasArt && Clock > NextFidget)
 	{
 		NextFidget = Clock + FMath::FRandRange(10.f, 15.f);
-		PlayOnce(SQArt::Anim(ReaperModel(), FMath::RandBool() ? FName(TEXT("Idle_B")) : FName(TEXT("Taunt"))));
+		// the reaper's own flourish / bank / victory beat, generic fidgets only as a fallback
+		const FString IdStr = ShownReaper.ToString();
+		const int32 Pick = FMath::RandRange(0, 2);
+		const FName Own(*FString::Printf(Pick == 0 ? TEXT("SQ_Flourish_%s") : Pick == 1 ? TEXT("SQ_Bank_%s") : TEXT("SQ_Sig_%s"), *IdStr));
+		PlayOnceNamed({ Own, FName(*FString::Printf(TEXT("SQ_Flourish_%s"), *IdStr)), FName(TEXT("Idle_B")), FName(TEXT("Taunt")) });
 	}
 
 	// pop when the reaper changes; the primitive reaper bobs, and hops when it cheers

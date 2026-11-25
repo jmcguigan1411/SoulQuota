@@ -33,6 +33,7 @@
 #include "SQPortal.h"
 #include "SQQuests.h"
 #include "EngineUtils.h"
+#include "Components/CapsuleComponent.h"
 #include "SQTutorial.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/Texture.h"
@@ -2473,6 +2474,12 @@ void ASQHUD::DrawLobby(const ASQGameState* GS, const ASQPlayerState* PS, const A
 			Banner = TEXT("Press ENTER or click the card to pick");
 			BannerCol = SQUI::Soul;
 		}
+		else if (!FocusDef->Tip.IsEmpty())
+		{
+			// character pass: your own pick shows how to play it
+			Banner = FString::Printf(TEXT("TIP: %s"), *FocusDef->Tip);
+			BannerCol = SQUI::BoneWhite;
+		}
 		if (!Banner.IsEmpty())
 		{
 			HudAlpha = Vis;
@@ -2750,7 +2757,7 @@ float ASQHUD::DrawKitPanel(const FSQReaperDef* Def, const USQData* D, float X, f
 		int32 UnlockLevel = 0;
 		bool bEvolved = false;
 	};
-	FSQHudKitRow Rows[4];
+	FSQHudKitRow Rows[5]; // character pass: row 4 = the movement trait
 	if (Def)
 	{
 		TArray<FSQAbilityView> Kit;
@@ -2801,19 +2808,50 @@ float ASQHUD::DrawKitPanel(const FSQReaperDef* Def, const USQData* D, float X, f
 	{
 		Rows[3].UnlockLevel = 6;
 	}
+	const bool bHasTrait = Def && Def->Trait.IsSet();
+	if (bHasTrait)
+	{
+		Rows[4].Name = Def->Trait.Name.IsEmpty() ? FString(TEXT("Trait")) : Def->Trait.Name;
+		Rows[4].Glyph = TEXT("MV");
+		Rows[4].Desc = Def->Trait.Text;
+	}
+	const int32 NumRows = bHasTrait ? 5 : 4;
 
-	const float RowH = 86.f, HeadH = 46.f, Pad = 16.f;
-	const float H = HeadH + 4.f * RowH + Pad;
+	// Character pass: who this reaper is (bio), how hard and in what style they play
+	const FString Bio = Def ? Def->Bio : FString();
+	const float BioH = Bio.IsEmpty() ? 0.f : 40.f;
+	const float RowH = 78.f, HeadH = 46.f + BioH, Pad = 16.f;
+	const float H = HeadH + NumRows * RowH + Pad;
 	HudLayerPanel(X, Y, W, H, 20.f, Accent);
 	HudTxt(TEXT("KIT"), HudHeadFont(), 20.f, X + Pad + 2.f, Y + 12.f, SQUI::BoneWhite);
-	HudTxt(TEXT("AIM E / R WITH THE MOUSE"), HudLabelFont(true), 11.f, X + W - Pad, Y + 18.f, SQUI::Muted, 2, false);
+	if (Def && !Def->Playstyle.IsEmpty())
+	{
+		// difficulty pips (1..3) and the playstyle tag, right-aligned
+		const float PipR = 5.f, PipGap = 14.f;
+		const float PipX0 = X + W - Pad - 3.f * PipGap + PipGap * 0.5f;
+		for (int32 Pip = 0; Pip < 3; ++Pip)
+		{
+			const bool bOn = Pip < Def->Difficulty;
+			HudDisc(bOn ? Accent : SQUI::WithAlpha(SQUI::Line, 0.9f), PipX0 + Pip * PipGap, Y + 24.f, PipR);
+		}
+		const FString StyleTag = Def->Playstyle.ToUpper();
+		HudTxt(StyleTag, HudLabelFont(true), HudFitPx(StyleTag, HudLabelFont(true), 12.f, W * 0.55f), PipX0 - 14.f, Y + 17.f, SQUI::Muted, 2, false);
+	}
+	else
+	{
+		HudTxt(TEXT("AIM E / R WITH THE MOUSE"), HudLabelFont(true), 11.f, X + W - Pad, Y + 18.f, SQUI::Muted, 2, false);
+	}
+	if (!Bio.IsEmpty())
+	{
+		HudWrap(Bio, HudLabelFont(false), 12.f, X + Pad + 2.f, Y + 44.f, W - 2.f * Pad, SQUI::BoneWhite, 15.f, 2);
+	}
 
-	static const TCHAR* const SlotTags[4] = { TEXT("SIGNATURE WEAPON"), TEXT("PASSIVE"), TEXT("ABILITY"), TEXT("ULTIMATE") };
-	static const TCHAR* const SlotKeys[4] = { TEXT("AUTO"), TEXT("P"), TEXT("E"), TEXT("R") };
-	const FLinearColor SlotColours[4] = { SQUI::Amber, SQUI::Soul, Accent, FMath::Lerp(Accent, SQUI::Gold, 0.35f) };
+	static const TCHAR* const SlotTags[5] = { TEXT("SIGNATURE WEAPON"), TEXT("PASSIVE"), TEXT("ABILITY"), TEXT("ULTIMATE"), TEXT("MOVEMENT TRAIT") };
+	static const TCHAR* const SlotKeys[5] = { TEXT("AUTO"), TEXT("P"), TEXT("E"), TEXT("R"), TEXT("MOVE") };
+	const FLinearColor SlotColours[5] = { SQUI::Amber, SQUI::Soul, Accent, FMath::Lerp(Accent, SQUI::Gold, 0.35f), SQUI::Arcane };
 	const float SlideIn = HudEaseOut((HudNow - LobbyFocusAt) / 0.35f);
 	const float BaseAlpha = HudAlpha;
-	for (int32 SlotIdx = 0; SlotIdx < 4; ++SlotIdx)
+	for (int32 SlotIdx = 0; SlotIdx < NumRows; ++SlotIdx)
 	{
 		const FSQHudKitRow& Row = Rows[SlotIdx];
 		const float RowIn = HudEaseOut((HudNow - LobbyFocusAt - 0.05f * SlotIdx) / 0.3f);
@@ -2857,7 +2895,7 @@ float ASQHUD::DrawKitPanel(const FSQReaperDef* Def, const USQData* D, float X, f
 		const FString NameUpper = Row.Name.ToUpper();
 		HudTxt(NameUpper, HudHeadFont(), HudFitPx(NameUpper, HudHeadFont(), 18.f, TW - RightW), TX, RY + 7.f, SQUI::BoneWhite);
 		FString Tag = SlotTags[SlotIdx];
-		if (SlotIdx >= 2)
+		if (SlotIdx >= 2 && SlotIdx <= 3)
 		{
 			Tag += FString::Printf(TEXT("  -  UNLOCKS AT LV %d"), Row.UnlockLevel);
 		}
@@ -4215,6 +4253,8 @@ float ASQHUD::DrawAbilityBar(const ASQGameState* GS, const ASQPlayerState* PS, c
 		else if (Cd > 0.01f) Sub = CdText(Cd);
 		else if (bCharging) Sub = FString::Printf(TEXT("%d%%"), FMath::FloorToInt(UltCharge * 100.f));
 		else Sub = TEXT("READY");
+		// Character pass: E charges / stacks show on the slot ("x2"), even while the next charge refills
+		if (!bIsR && bUnlocked && View && View->Charges > 0) Sub = Cd > 0.01f ? FString::Printf(TEXT("x%d %s"), View->Charges, *CdText(Cd)) : FString::Printf(TEXT("x%d"), View->Charges);
 		const float Curtain = !bUnlocked ? 0.f : (Cd > 0.01f ? Cd / CdMax : (bCharging ? 1.f - UltCharge : 0.f));
 		const FString Glyph = View ? HudStr(View->Glyph) : FString();
 		DrawActionSlot(bIsR ? TEXT("R") : TEXT("E"), Glyph.IsEmpty() ? (bIsR ? FString(TEXT("R")) : FString(TEXT("E"))) : Glyph, Sub, CurX, SlotsY, ActS,
@@ -4389,6 +4429,31 @@ void ASQHUD::DrawCoop(const ASQGameState* GS, const ASQCharacter* C, const ASQPl
 	const float Left = 60.f, Right = HudVW - 60.f;
 	const float Top = 120.f, Bottom = HudVH - FMath::Max(120.f, BottomReserve + 30.f);
 	const float CentreX = HudVW * 0.5f, CentreY = (Top + Bottom) * 0.5f;
+
+	// ---- Character pass: barks - a short line in a bubble over the reaper's head (3 s)
+	for (TActorIterator<ASQCharacter> BarkIt(CoopWorld); BarkIt; ++BarkIt)
+	{
+		const ASQCharacter* Talker = *BarkIt;
+		if (!Talker || Talker->BarkLine.IsEmpty()) continue;
+		const float BarkAge = static_cast<float>(WorldNow - Talker->BarkAt);
+		if (BarkAge < 0.f || BarkAge > 3.f) continue;
+		const USQData* BarkData = USQData::Get(this);
+		const FSQReaperDef* BarkDef = BarkData ? BarkData->FindReaper(Talker->ReaperId) : nullptr;
+		// over the head at the reaper's drawn size (feet = capsule bottom)
+		const float HalfH = Talker->GetCapsuleComponent() ? Talker->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 90.f;
+		const float BarkHead = -HalfH + (BarkData ? BarkData->Tune(TEXT("ReaperArtHeight"), 190.f) : 190.f) * (BarkDef ? BarkDef->ArtScale : 1.f) + 45.f;
+		const FVector BarkScreen = Canvas->Project(Talker->GetActorLocation() + FVector(0.0, 0.0, BarkHead));
+		if (BarkScreen.Z <= 0.f) continue;
+		const float BX = static_cast<float>(BarkScreen.X) / UIScale, BY = static_cast<float>(BarkScreen.Y) / UIScale;
+		if (BX < Left || BX > Right || BY < 40.f || BY > Bottom) continue;
+		const float Pop = FMath::Clamp(BarkAge / 0.15f, 0.f, 1.f);
+		const float Fade = FMath::Clamp((3.f - BarkAge) / 0.5f, 0.f, 1.f);
+		const FLinearColor BarkCol = BarkDef ? BarkDef->Color : SQUI::BoneWhite;
+		const float SavedAlpha = HudAlpha;
+		HudAlpha = Fade;
+		HudPill(Talker->BarkLine, BX, BY - 10.f * Pop, SQUI::Midnight, BarkCol, 14.f, 1);
+		HudAlpha = SavedAlpha;
+	}
 
 	// ---- Pings: a labelled marker over the spot, or an arrow at the screen edge
 	for (const ASQGameState::FSQPing& Ping : GS->LocalPings)

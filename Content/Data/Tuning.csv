@@ -793,3 +793,9 @@ StyleEventSky,1,Blood Moon / Soul Storm change the sky while active (0 = off)
 EventWisps,1,The Trapped Spirit's companion wisps round every reaper (0 = off)
 EventFleeRange,1500,Gilt Scuttler: bolts when a reaper is this close (cm)
 EventFleeSpeed,460,Gilt Scuttler: flee push (cm/s)
+ShowroomScalePow,0.6,Character pass: menu / lobby showroom height = ReaperHeight x ArtScale^this (0 = everyone the same size; 1 = true scale)
+ChargeLockout,0.35,Character pass: seconds between two E casts while charges remain (Kits.csv Mod Charges)
+RecastLockout,0.3,Character pass: seconds after a Recast E before the snap-back can be pressed
+TraitLanternRange,1600,Character pass: NearLantern traits apply within this many cm of a lantern
+BarksEnabled,1,Character pass: 1 = reapers say short lines over their heads (Reapers.csv Bark*)
+BarkGapSeconds,9,Character pass: minimum seconds between two barks from one reaper (revive / boss / victory always speak)

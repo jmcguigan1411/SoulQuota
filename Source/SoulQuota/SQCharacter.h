@@ -150,6 +150,18 @@ public:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void PossessedBy(AController* NewController) override;
+
+	// --- Character pass (Nov 25): text barks over the reaper's head (Reapers.csv Bark*), local visuals on every machine ---
+	/** Shows one of this reaper's lines for Event (Level, LowHealth, Revive, Combo, Boss, Victory, Pickup), rate limited */
+	void Bark(FName Event);
+	FString BarkLine;
+	double BarkAt = -100.0;
+	double BarkNextAllowed = 0.0;
+	float BarkPrevHealthFrac = 1.f;
+	bool bBarkPrevDowned = false;
+	int32 BarkPrevLevel = -1;
+	uint8 BarkPrevPhase = 255;
+	void TickBarks();
 	/** Bunny-hop window, slide-landing roll and (server) fall damage */
 	virtual void Landed(const FHitResult& Hit) override;
 	/** Jump pads (big upward launches) make the next landing safe from fall damage */

@@ -357,6 +357,37 @@ void USQData::Reload()
 			D.Gait.HeadBob = FMath::Clamp(R.F(r, TEXT("GaitHeadBob"), 0.f), 0.f, 25.f);
 			D.Gait.Limp = FMath::Clamp(R.F(r, TEXT("GaitLimp"), 0.f), 0.f, 1.f);
 			D.Gait.Hover = FMath::Clamp(R.F(r, TEXT("GaitHover"), 0.f), 0.f, 80.f);
+			// Body proportions (character pass; 1 = as modelled, clamped so a typo can't explode a reaper)
+			D.Body.Legs = FMath::Clamp(R.F(r, TEXT("BodyLegs"), 1.f), 0.2f, 2.f);
+			D.Body.Torso = FMath::Clamp(R.F(r, TEXT("BodyTorso"), 1.f), 0.5f, 2.f);
+			D.Body.Chest = FMath::Clamp(R.F(r, TEXT("BodyChest"), 1.f), 0.5f, 2.f);
+			D.Body.Head = FMath::Clamp(R.F(r, TEXT("BodyHead"), 1.f), 0.3f, 2.5f);
+			D.Body.Arms = FMath::Clamp(R.F(r, TEXT("BodyArms"), 1.f), 0.5f, 2.f);
+			D.Body.Hands = FMath::Clamp(R.F(r, TEXT("BodyHands"), 1.f), 0.5f, 2.f);
+			D.HitRadius = FMath::Clamp(R.F(r, TEXT("HitRadius"), 40.f), 20.f, 70.f);
+			D.Trait.Name = R.S(r, TEXT("TraitName"));
+			D.Trait.Cond = R.N(r, TEXT("TraitCond"));
+			D.Trait.Effect = R.N(r, TEXT("TraitEffect"));
+			D.Trait.Value = FMath::Clamp(R.F(r, TEXT("TraitValue"), 0.f), 0.f, 1.f);
+			D.Trait.Time = FMath::Clamp(R.F(r, TEXT("TraitTime"), 0.f), 0.f, 30.f);
+			D.Trait.Text = R.S(r, TEXT("TraitText"));
+			D.Bio = R.S(r, TEXT("Bio"));
+			D.Tip = R.S(r, TEXT("Tip"));
+			D.Difficulty = FMath::Clamp(R.I(r, TEXT("Difficulty")), 1, 3);
+			D.Playstyle = R.S(r, TEXT("Playstyle"));
+			{
+				static const TCHAR* BarkEvents[] = { TEXT("Level"), TEXT("LowHealth"), TEXT("Revive"), TEXT("Combo"), TEXT("Boss"), TEXT("Victory"), TEXT("Pickup") };
+				for (const TCHAR* Event : BarkEvents)
+				{
+					const FString Cell = R.S(r, *(FString(TEXT("Bark")) + Event));
+					if (Cell.IsEmpty()) continue;
+					TArray<FString> Lines;
+					Cell.ParseIntoArray(Lines, TEXT("|"), true);
+					for (FString& Line : Lines) Line.TrimStartAndEndInline();
+					Lines.RemoveAll([](const FString& L) { return L.IsEmpty(); });
+					if (Lines.Num() > 0) D.Barks.Add(FName(Event), Lines);
+				}
+			}
 			Reapers.Add(D);
 		}
 	}
@@ -498,6 +529,14 @@ void USQData::Reload()
 				A.EvoValue = K.F(r, *Col(TEXT("EvoValue")));
 				A.EvoTime = FMath::Clamp(K.F(r, *Col(TEXT("EvoTime"))), 0.f, 15.f);
 				A.EvoText = K.S(r, *Col(TEXT("EvoText")));
+				A.Mod = K.N(r, *Col(TEXT("Mod")));
+				if (!A.Mod.IsNone() && A.Mod != TEXT("Charges") && A.Mod != TEXT("Recast") && A.Mod != TEXT("Stacks") && A.Mod != TEXT("Trap") && A.Mod != TEXT("Detonate"))
+				{
+					LoadErrors += FString::Printf(TEXT("Kits.csv %s: unknown Mod %s (ignored). "), *Where, *A.Mod.ToString());
+					A.Mod = NAME_None;
+				}
+				A.ModValue = FMath::Clamp(K.F(r, *Col(TEXT("ModValue"))), 0.f, 10.f);
+				A.ModTime = FMath::Clamp(K.F(r, *Col(TEXT("ModTime"))), 0.f, 30.f);
 				A.Anims = SplitAnimList(K.S(r, *Col(TEXT("Anim"))));
 				A.Fx = K.N(r, *Col(TEXT("Fx")));
 				A.Color = K.C(r, *Col(TEXT("Color")));
