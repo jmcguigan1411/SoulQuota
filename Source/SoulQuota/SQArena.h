@@ -292,6 +292,13 @@ public:
 	bool HasRolledRunSeed() const { return bRunSeedRolled; }
 	UPROPERTY(VisibleAnywhere) TObjectPtr<USceneComponent> Root;
 
+	// --- Map finish (Nov 24 2026) ---
+	/** Server: the Trapped Spirit's companion wisps orbit every reaper for Seconds (replicated end time; drawn on every machine). */
+	void StartCompanion(float Seconds);
+	UPROPERTY(Replicated) float CompanionEndTime = 0.f;
+	/** The raised walkway (one per map): deck ends A -> B at DeckZ (false when none fitted this seed). */
+	bool GetWalkway(FVector2D& OutA, FVector2D& OutB, float& OutDeckZ) const { OutA = WalkA; OutB = WalkB; OutDeckZ = WalkDeckZ; return bWalkway; }
+
 	// --- Gimmick queries (valid on server and clients) ---
 	ESQGimmick GetGimmick() const;
 	bool IsGimmickActive() const;
@@ -490,6 +497,8 @@ protected:
 	UPROPERTY() TObjectPtr<UProceduralMeshComponent> Terrain;
 	/** Warm lamp-post lights (no shadows), at most MaxArenaLights. */
 	UPROPERTY() TArray<TObjectPtr<UPointLightComponent>> MapLights;
+	/** Map finish pass: steady soft lights over the lanes, one per lamp pair (no shadows, no flicker). */
+	UPROPERTY() TArray<TObjectPtr<UPointLightComponent>> LaneLampLights;
 	/** Blocking prop ISMs / components, invisible prop cylinders, lamp blockers and layout wall colliders (subset of Built / ArtISMs). */
 	UPROPERTY() TArray<TObjectPtr<UPrimitiveComponent>> PropBlockers;
 	/** SQFadeable components (subset of Built / ArtISMs). */
@@ -500,6 +509,55 @@ protected:
 	float SafetyNetTimer = 0.f;
 	/** Map art pass (Nov 10 2026): lamp flicker + fireflies round the local view (clients; no allocations). */
 	void TickAmbience();
+	// --- Map finish (Nov 24 2026): stairs + terrace faces, one raised walkway, per-map skies, event skies, companion wisps, scuttler look ---
+	/** Stone faces on the terrace banks and stair treads where a lane / the road climbs one (visual; the terrain carries the walking). */
+	void BuildTerraceFaces(const USQData* D, const FSQArenaPalette& Pal);
+	/** Picks the walkway: a footbridge over one lane, ramps landing clear of walls (footprint goes into BlockerSpots for the horde). */
+	void PlanWalkway(const USQData* D, int32 Seed);
+	/** Deck, ramps and rails with real collision, piers, themed per map. */
+	void BuildWalkway(const USQData* D, const FSQArenaPalette& Pal);
+	/** True near the walkway's span (lane lamps and lane spans keep out from under the deck). */
+	bool NearWalkwaySpan(float X, float Y, float Pad) const;
+	/** Harbour sea horizon + lighthouse beam, Clocktower clock-face skyline (called from BuildSky). */
+	void BuildMapSky(const USQData* D, const FSQArenaPalette& Pal, float DomeR, float EdgeZ, FRandomStream& SkyRand);
+	/** Event skies (Blood Moon / Soul Storm), lighthouse beam sweep, skyline clock hands, companion wisps, the Gilt Scuttler's look. */
+	void TickMapFinish(float T);
+	bool bWalkway = false;
+	FVector2D WalkA = FVector2D::ZeroVector;
+	FVector2D WalkB = FVector2D::ZeroVector;
+	float WalkDeckZ = 0.f;
+	float WalkHalfWidth = 170.f;
+	float WalkRampLen = 900.f;
+	UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> SkyDomeMID;
+	UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> MoonMID;
+	FLinearColor SkyBaseHorizon = FLinearColor::Black;
+	FLinearColor SkyBaseMid = FLinearColor::Black;
+	FLinearColor SkyBaseZenith = FLinearColor::Black;
+	FLinearColor MoonBaseTone = FLinearColor::White;
+	float MoonBaseGlow = 2.2f;
+	float EventSkyBlend = 0.f;
+	FName EventSkyId = NAME_None;
+	UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> BeamISM;
+	FVector BeamOrigin = FVector::ZeroVector;
+	float BeamLength = 0.f;
+	UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> SkyHandISM;
+	TArray<FVector> SkyClockCentres;
+	TArray<float> SkyClockYaw;
+	float SkyClockRadius = 0.f;
+	UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> StormISM;
+	UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> WispCoreISM;
+	UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> WispMoteISM;
+	UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> ScuttlerISM;
+	UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> WispCoinISM;
+	float AppliedSkyBlend = 0.f;
+	/** District condition marks: a pair of glowing pennant standards at the gate of each conditioned district (built when the
+	 *  replicated conditions arrive or change). */
+	UPROPERTY() TArray<TObjectPtr<UInstancedStaticMeshComponent>> CondISMs;
+	uint32 CondKey = 0;
+	TArray<FTransform> ScratchFinish;
+	bool bWispsShown = false;
+	bool bScuttlerShown = false;
+	bool bStormShown = false;
 	UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> MoteISM;
 	TArray<FTransform> ScratchMotes;
 	float LampBaseIntensity = 0.f;

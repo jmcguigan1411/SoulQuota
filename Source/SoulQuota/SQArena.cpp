@@ -38,6 +38,8 @@
 #include "SQLantern.h"
 #include "SQPot.h"
 #include "SQShrine.h"
+#include "SQHordeManager.h"
+#include "SQQuests.h"
 
 namespace
 {
@@ -404,6 +406,7 @@ void ASQArena::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetime
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(ASQArena, BiomeId);
 	DOREPLIFETIME(ASQArena, RunSeed);
+	DOREPLIFETIME(ASQArena, CompanionEndTime);
 }
 
 void ASQArena::BeginPlay()
@@ -560,6 +563,26 @@ void ASQArena::Rebuild()
 	ArtISMs.Reset();
 	MoteISM = nullptr;
 	LampBaseIntensity = 0.f;
+	SkyDomeMID = nullptr;
+	MoonMID = nullptr;
+	BeamISM = nullptr;
+	SkyHandISM = nullptr;
+	StormISM = nullptr;
+	WispCoreISM = nullptr;
+	WispMoteISM = nullptr;
+	ScuttlerISM = nullptr;
+	WispCoinISM = nullptr;
+	CondISMs.Reset();
+	CondKey = 0;
+	SkyClockCentres.Reset();
+	SkyClockYaw.Reset();
+	SkyClockRadius = 0.f;
+	bWispsShown = false;
+	bScuttlerShown = false;
+	bStormShown = false;
+	AppliedSkyBlend = 0.f;
+	EventSkyBlend = 0.f;
+	bWalkway = false;
 	if (Terrain)
 	{
 		Terrain->DestroyComponent();
@@ -570,6 +593,11 @@ void ASQArena::Rebuild()
 		if (MapLight) MapLight->DestroyComponent();
 	}
 	MapLights.Reset();
+	for (UPointLightComponent* LaneLight : LaneLampLights)
+	{
+		if (LaneLight) LaneLight->DestroyComponent();
+	}
+	LaneLampLights.Reset();
 	PropBlockers.Reset();
 	Fadeables.Reset();
 	BlockerSpots.Reset();
@@ -646,6 +674,8 @@ void ASQArena::Rebuild()
 	}
 	const int32 TerrainSeed = (Seed ^ 0x1B873593) & 0x7fffffff;
 	MapSeed = Seed;
+	// Map finish: the raised walkway goes in before lamps and scenery, so they keep clear of its ramps
+	PlanWalkway(D, Seed);
 	PlanLamps(D);
 	// Map quality pass: plan the district scenery now, so the terrain paint below can pave and shade under it
 	PlanScenery(D);
@@ -695,6 +725,9 @@ void ASQArena::Rebuild()
 
 	// Layout walls: collision on every machine (they block reapers, the boss and - via the horde grid - the horde)
 	BuildLayoutWalls(Pal, PropScale, bArt);
+	// Map finish: the walkway (collision on every machine), stairs and faced terrace banks (look only)
+	BuildWalkway(D, Pal);
+	if (bVisuals) BuildTerraceFaces(D, Pal);
 	// Map revamp: bone park pieces (collision + horde footprints everywhere), lane chevrons, beacons, name plates
 	BuildDistricts(D, bVisuals);
 
@@ -1688,6 +1721,8 @@ void ASQArena::TickAmbience()
 			}
 		}
 	}
+
+	TickMapFinish(T);
 
 	// Fireflies: world-anchored spots on a 30 m tile that wraps round the local reaper, so there are always some in view
 	if (!MoteISM || ScratchMotes.Num() == 0 || GridN <= 0) return;
@@ -4679,6 +4714,10 @@ void ASQArena::BuildSky(const USQData* D, const FSQArenaPalette& Pal, int32 Seed
 			SkyMID->SetVectorParameterValue(TEXT("Zenith"), Pal.SkyZenith);
 			SkyMID->SetScalarParameterValue(TEXT("Brightness"), SkyBright);
 			SkyMID->SetScalarParameterValue(TEXT("MidHeight"), FMath::Clamp(D->Tune(TEXT("StyleSkyMidHeight"), 0.22f), 0.05f, 0.8f));
+			SkyDomeMID = SkyMID;
+			SkyBaseHorizon = Pal.SkyHorizon;
+			SkyBaseMid = Pal.SkyMid;
+			SkyBaseZenith = Pal.SkyZenith;
 			UInstancedStaticMeshComponent* DomeISM = MakeArtISM(SphereMesh, SkyMID, false, false);
 			// Engine sphere = 100 cm across. Centred on the arena origin (the material measures height from there).
 			DomeISM->AddInstance(FTransform(FRotator::ZeroRotator, FVector::ZeroVector, FVector(DomeR / 50.f)));
@@ -4695,7 +4734,10 @@ void ASQArena::BuildSky(const USQData* D, const FSQArenaPalette& Pal, int32 Seed
 	const float MoonSize = FMath::Clamp(D->Tune(TEXT("StyleMoonSize"), 0.085f), 0.01f, 0.4f) * DomeR;
 	const FVector MoonDir = FRotator(MoonElev, MoonYaw, 0.f).Vector();
 	const FLinearColor MoonTone = FMath::Lerp(FLinearColor::White, ArenaHue(Pal.Moon), 0.35f);
-	UInstancedStaticMeshComponent* MoonISM = MakeArtISM(SphereMesh, SurfaceMID(this, MoonTone, FMath::Clamp(D->Tune(TEXT("StyleMoonGlow"), 2.2f), 0.f, 12.f)), false, false);
+	MoonBaseTone = MoonTone;
+	MoonBaseGlow = FMath::Clamp(D->Tune(TEXT("StyleMoonGlow"), 2.2f), 0.f, 12.f);
+	MoonMID = SurfaceMID(this, MoonTone, MoonBaseGlow);
+	UInstancedStaticMeshComponent* MoonISM = MakeArtISM(SphereMesh, MoonMID, false, false);
 	MoonISM->AddInstance(FTransform(FRotator::ZeroRotator, MoonDir * (DomeR * 0.93f), FVector(MoonSize / 50.f)));
 
 	// Stars: two tones, upper sky only, thinner toward the horizon haze
@@ -4720,6 +4762,9 @@ void ASQArena::BuildSky(const USQData* D, const FSQArenaPalette& Pal, int32 Seed
 	const FLinearColor NearHill = FMath::Lerp(Pal.Backdrop, Pal.Grass * 0.25f, 0.5f);
 	const FLinearColor FarHill = FMath::Lerp(NearHill, Pal.SkyHorizon, 0.45f);
 	TArray<FVector, TInlineAllocator<80>> HillTops;
+	static const FName ShapeSea(TEXT("Causeways"));
+	const bool bSeaSky = MapShape == ShapeSea && D->Tune(TEXT("StyleMapSky"), 1.f) >= 0.5f;
+	const float SeaYawRad = FMath::DegreesToRadians(D->Tune(TEXT("StyleMapSkyYaw"), 200.f));
 	for (int32 Ring = 0; Ring < 2 && HillsPerRing > 0; ++Ring)
 	{
 		UInstancedStaticMeshComponent* HillISM = MakeArtISM(SphereMesh, SurfaceMID(this, Ring == 0 ? NearHill : FarHill), false, false);
@@ -4727,6 +4772,8 @@ void ASQArena::BuildSky(const USQData* D, const FSQArenaPalette& Pal, int32 Seed
 		for (int32 HillIdx = 0; HillIdx < HillsPerRing; ++HillIdx)
 		{
 			const float Ang = (static_cast<float>(HillIdx) + SkyRand.FRandRange(-0.3f, 0.3f)) / static_cast<float>(HillsPerRing) * 2.f * PI + Ring * 0.4f;
+			// Map finish: the Harbour's sea side stays open to the horizon (no hills, no skyline there)
+			if (bSeaSky && FMath::Abs(FMath::FindDeltaAngleRadians(Ang, SeaYawRad)) < FMath::DegreesToRadians(62.f)) continue;
 			const float R = RingR + SkyRand.FRandRange(-1500.f, 2500.f);
 			const float Wide = SkyRand.FRandRange(5500.f, 9500.f) * (Ring == 0 ? 1.f : 1.8f);
 			const float Tall = SkyRand.FRandRange(1100.f, 2600.f) * (Ring == 0 ? 1.f : 2.1f);
@@ -4758,6 +4805,13 @@ void ASQArena::BuildSky(const USQData* D, const FSQArenaPalette& Pal, int32 Seed
 					FVector(PropScale * SkyRand.FRandRange(0.6f, 1.f) * FMath::Clamp(D->Tune(TEXT("StyleSkylineScale"), 4.f), 1.f, 13.f))));
 			}
 		}
+	}
+
+	// Map finish: per-map horizon (sea + lighthouse / clock-face skyline), and the Soul Storm's streaks (filled while it blows)
+	BuildMapSky(D, Pal, DomeR, EdgeZ, SkyRand);
+	{
+		UMaterialInstanceDynamic* StormMID = SQArt::GlowMID(this, FLinearColor(0.36f, 0.95f, 0.84f), 1.4f, 0.7f);
+		StormISM = MakeArtISM(SQ::Mesh(TEXT("Cube")), StormMID ? StormMID : SurfaceMID(this, FLinearColor(0.36f, 0.95f, 0.84f), 2.f), false, false);
 	}
 }
 
@@ -6171,6 +6225,12 @@ int32 ASQArena::BuildSetPieces(const USQData* D, bool bVisuals)
 	int32 WaysPlaced = 0;
 	const float SpanGap = FMath::Clamp(D->Tune(TEXT("MapSpanSpacing"), 1800.f), 600.f, 8000.f);
 	const int32 SpanMax = FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("MapSpanMax"), 24.f)), 0, 80);
+	// Map finish pass: spans stay this far outside a plaza so the landmark is seen clear from the lane
+	const float SpanKeepOut = FMath::Clamp(D->Tune(TEXT("MapSpanKeepOut"), 2700.f), 600.f, 6000.f);
+	// Map finish pass: one soft unshadowed light over the lane per lamp pair (the lamp heads alone are only emissive)
+	const int32 LaneLightMax = bVisuals ? FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("MapLaneLampLightMax"), 28.f)), 0, 64) : 0;
+	int32 LaneLightsPlaced = 0;
+	const FLinearColor LaneLightColour = ArenaHue(ArenaLoadPalette(BiomeId, D->FindBiome(BiomeId)).Lamp);
 	int32 SpansPlaced = 0;
 	UInstancedStaticMeshComponent* LampISM = nullptr;
 	UInstancedStaticMeshComponent* LampGlowISM = nullptr;
@@ -6216,7 +6276,7 @@ int32 ASQArena::BuildSetPieces(const USQData* D, bool bVisuals)
 				bool bRoom = SpanAt.Size() > HubRadius + 700.f && GroundSlopeDeg(SX, SY) < 12.f;
 				for (const FSQMapZone& Zone : MapZones)
 				{
-					if (Zone.Kind != ESQZoneKind::Hub && FVector2D::Distance(Zone.Centre, SpanAt) < Zone.Radius + 1300.f) bRoom = false;
+					if (Zone.Kind != ESQZoneKind::Hub && FVector2D::Distance(Zone.Centre, SpanAt) < Zone.Radius + SpanKeepOut) bRoom = false;
 				}
 				UStaticMesh* SpanMesh = SpanMeshes[SpansPlaced % SpanMeshes.Num()];
 				const FVector2D SpanFwd = Seg.GetSafeNormal();
@@ -6224,7 +6284,7 @@ int32 ASQArena::BuildSetPieces(const USQData* D, bool bVisuals)
 				const float PierOff = FootOf(SpanMesh, 1.f) - 30.f;
 				const FVector2D PierA = SpanAt + SpanSide * PierOff;
 				const FVector2D PierB = SpanAt - SpanSide * PierOff;
-				bRoom = bRoom && PierOff > LaneHalfWidth + 90.f
+				bRoom = bRoom && PierOff > LaneHalfWidth + 90.f && !NearWalkwaySpan(SX, SY, 900.f)
 					&& IsPropFootprintFree(static_cast<float>(PierA.X), static_cast<float>(PierA.Y), 60.f)
 					&& IsPropFootprintFree(static_cast<float>(PierB.X), static_cast<float>(PierB.Y), 60.f);
 				if (bRoom && PlaceSetPiece(SpanMesh, SX, SY, FMath::RadiansToDegrees(FMath::Atan2(static_cast<float>(SpanFwd.Y), static_cast<float>(SpanFwd.X))), 0.f, true))
@@ -6276,7 +6336,7 @@ int32 ASQArena::BuildSetPieces(const USQData* D, bool bVisuals)
 					const FVector2D At = Lane.Pts[i] + Side * (SideSign * (LaneHalfWidth + 150.f));
 					const float LX = static_cast<float>(At.X);
 					const float LY = static_cast<float>(At.Y);
-					if (!Clear(LX, LY, 30.f)) continue;
+					if (!Clear(LX, LY, 30.f) || NearWalkwaySpan(LX, LY, 200.f)) continue;
 					if (!LampISM)
 					{
 						LampISM = MakeArtISM(LampMesh, nullptr, true, true);
@@ -6300,6 +6360,21 @@ int32 ASQArena::BuildSetPieces(const USQData* D, bool bVisuals)
 						}
 						const FVector2D Head = At - Side * (SideSign * 32.f);
 						LampGlowISM->AddInstance(FTransform(FRotator::ZeroRotator, FVector(Head.X, Head.Y, LZ + 350.f), FVector(0.55f)));
+					}
+					if (SideSign > 0 && LaneLightsPlaced < LaneLightMax)
+					{
+						const float CX = static_cast<float>(Lane.Pts[i].X);
+						const float CY = static_cast<float>(Lane.Pts[i].Y);
+						UPointLightComponent* LaneLight = NewObject<UPointLightComponent>(this);
+						LaneLight->SetupAttachment(Root);
+						LaneLight->SetRelativeLocation(FVector(CX, CY, GroundZ(CX, CY) + 360.f));
+						LaneLight->SetIntensity(D->Tune(TEXT("MapLightIntensity"), 9000.f) * FMath::Clamp(D->Tune(TEXT("MapLaneLampLightScale"), 0.55f), 0.f, 2.f));
+						LaneLight->SetAttenuationRadius(FMath::Clamp(D->Tune(TEXT("MapLaneLampLightRadius"), 900.f), 200.f, 3000.f));
+						LaneLight->SetLightColor(LaneLightColour);
+						LaneLight->SetCastShadows(false);
+						LaneLight->RegisterComponent();
+						LaneLampLights.Add(LaneLight);
+						++LaneLightsPlaced;
 					}
 					++LampsPlaced;
 				}
@@ -6532,4 +6607,609 @@ void ASQArena::BuildDistricts(const USQData* D, bool bVisuals)
 	}
 	UE_LOG(LogSQ, Log, TEXT("Map districts: %d districts, %d lanes, %d skate features, %d park pieces, %d monuments, %d lane lights"),
 		Districts.Num(), Lanes.Num(), SkateFeatures.Num(), ParkBuilt, Monuments.Num(), LaneLights);
+}
+
+// ============================================================ map finish (Nov 24 2026)
+// Stairs and stone-faced terrace banks, one raised walkway per map, per-map skies (Harbour sea + lighthouse, Clocktower
+// clock-face skyline), Blood Moon / Soul Storm event skies, the Trapped Spirit's companion wisps and the Gilt Scuttler's look.
+// Every strength is a Tuning key (Map finish block). Original shapes built from engine primitives.
+
+void ASQArena::StartCompanion(float Seconds)
+{
+	if (!HasAuthority()) return;
+	CompanionEndTime = FMath::Max(CompanionEndTime, Now() + FMath::Clamp(Seconds, 0.f, 600.f));
+}
+
+void ASQArena::BuildTerraceFaces(const USQData* D, const FSQArenaPalette& Pal)
+{
+	if (MapShape.IsNone() || GridN <= 0 || D->Tune(TEXT("MapTerraceFaces"), 1.f) < 0.5f) return;
+	UStaticMesh* CubeMesh = SQ::Mesh(TEXT("Cube"));
+	if (!CubeMesh) return;
+	static const FName ShapeCauseways(TEXT("Causeways"));
+	const bool bTimber = MapShape == ShapeCauseways;
+	const float MinSlope = FMath::Tan(FMath::DegreesToRadians(FMath::Clamp(D->Tune(TEXT("MapTerraceFaceSlope"), 12.f), 4.f, 30.f)));
+	const float Step = FMath::Clamp(D->Tune(TEXT("MapTerraceFaceStep"), 200.f), 100.f, 600.f);
+	const float Rise = FMath::Clamp(D->Tune(TEXT("MapStairRise"), 24.f), 10.f, 60.f);
+	const FLinearColor Wood(0.20f, 0.11f, 0.05f);
+	const FLinearColor FaceTone = bTimber ? Wood : FMath::Lerp(Pal.Wall, Pal.Cliff, 0.5f) * 1.3f;
+	const FLinearColor CopeTone = bTimber ? Wood * 1.7f : Pal.Cap * 0.95f;
+	UInstancedStaticMeshComponent* FaceISM = MakeArtISM(CubeMesh, SurfaceMID(this, FaceTone), false, true);
+	UInstancedStaticMeshComponent* CopeISM = MakeArtISM(CubeMesh, SurfaceMID(this, CopeTone), false, true);
+	UInstancedStaticMeshComponent* TreadISM = MakeArtISM(CubeMesh, SurfaceMID(this, FMath::Lerp(Pal.Cap, Pal.Road, 0.25f)), false, true);
+
+	auto MacroGrad = [this](float X, float Y)
+	{
+		const float E = 60.f;
+		return FVector2D((MacroHeight(X + E, Y) - MacroHeight(X - E, Y)) / (2.f * E), (MacroHeight(X, Y + E) - MacroHeight(X, Y - E)) / (2.f * E));
+	};
+	auto OnWay = [this](float X, float Y, float Pad)
+	{
+		return DistToRoad(X, Y) < RoadHalfWidth + Pad || (Lanes.Num() > 0 && DistToLane(X, Y) < LaneHalfWidth + Pad);
+	};
+
+	// Banks: a stone (Harbour: timber) face laid on the slope, coping along the top edge. Lanes and the road get stairs instead.
+	int32 Faces = 0;
+	for (float Y = -Half + Step; Y < Half - Step; Y += Step)
+	{
+		for (float X = -Half + Step; X < Half - Step; X += Step)
+		{
+			const FVector2D G = MacroGrad(X, Y);
+			const float S = static_cast<float>(G.Size());
+			if (S < MinSlope || IsWaterAt(X, Y) || OnWay(X, Y, 60.f) || IsWallAt(X, Y, 30.f)) continue;
+			const FVector2D Up = G / S;
+			const float Yaw = FMath::RadiansToDegrees(FMath::Atan2(static_cast<float>(Up.Y), static_cast<float>(Up.X)));
+			const FVector N = GroundNormal(X, Y);
+			const FQuat Align = FQuat::FindBetweenNormals(FVector::UpVector, N) * FQuat(FRotator(0.f, Yaw, 0.f));
+			const float Along = Step * 1.04f / FMath::Max(0.35f, static_cast<float>(N.Z));
+			FaceISM->AddInstance(FTransform(Align, FVector(X, Y, GroundZ(X, Y) + 8.f), FVector(Along / 100.f, Step * 1.04f / 100.f, 0.16f)));
+			++Faces;
+			const float TX = X + static_cast<float>(Up.X) * Step * 0.55f;
+			const float TY = Y + static_cast<float>(Up.Y) * Step * 0.55f;
+			if (static_cast<float>(MacroGrad(TX + static_cast<float>(Up.X) * Step * 0.5f, TY + static_cast<float>(Up.Y) * Step * 0.5f).Size()) < MinSlope && !OnWay(TX, TY, 60.f))
+			{
+				CopeISM->AddInstance(FTransform(FRotator(0.f, Yaw, 0.f), FVector(TX, TY, GroundZ(TX, TY) + 16.f), FVector(0.5f, Step * 1.06f / 100.f, 0.38f)));
+			}
+		}
+	}
+
+	// Stairs: treads across the lane / road wherever it climbs a bank, cheek walls both sides
+	int32 Treads = 0;
+	auto StairWalk = [&](const TArray<FVector2D>& Pts, float HalfW)
+	{
+		for (int32 PtIdx = 0; PtIdx + 1 < Pts.Num(); ++PtIdx)
+		{
+			const FVector2D A = Pts[PtIdx];
+			const FVector2D B = Pts[PtIdx + 1];
+			const float Len = static_cast<float>(FVector2D::Distance(A, B));
+			if (Len < 1.f) continue;
+			const FVector2D Dir = (B - A) / Len;
+			const FVector2D Perp(-Dir.Y, Dir.X);
+			const float Yaw = FMath::RadiansToDegrees(FMath::Atan2(static_cast<float>(Dir.Y), static_cast<float>(Dir.X)));
+			float At = 0.f;
+			while (At < Len)
+			{
+				const FVector2D P = A + Dir * At;
+				const float PX = static_cast<float>(P.X);
+				const float PY = static_cast<float>(P.Y);
+				if (FMath::Abs(static_cast<float>(FVector2D::DotProduct(MacroGrad(PX, PY), Dir))) < MinSlope || IsWaterAt(PX, PY))
+				{
+					At += 80.f;
+					continue;
+				}
+				const float Grade = FMath::Abs(GroundZ(PX + static_cast<float>(Dir.X) * 40.f, PY + static_cast<float>(Dir.Y) * 40.f)
+					- GroundZ(PX - static_cast<float>(Dir.X) * 40.f, PY - static_cast<float>(Dir.Y) * 40.f)) / 80.f;
+				const float Run = FMath::Clamp(Rise / FMath::Max(Grade, 0.05f), 40.f, 160.f);
+				const FVector2D C = P + Dir * (Run * 0.5f);
+				const float CX = static_cast<float>(C.X);
+				const float CY = static_cast<float>(C.Y);
+				const float Top = GroundZ(CX, CY) + 4.f;
+				const float Thick = Rise + 30.f;
+				TreadISM->AddInstance(FTransform(FRotator(0.f, Yaw, 0.f), FVector(CX, CY, Top - Thick * 0.5f), FVector(Run / 100.f, HalfW * 2.f / 100.f, Thick / 100.f)));
+				for (int32 Side = -1; Side <= 1; Side += 2)
+				{
+					const FVector2D K = C + Perp * (static_cast<float>(Side) * (HalfW + 22.f));
+					CopeISM->AddInstance(FTransform(FRotator(0.f, Yaw, 0.f), FVector(K.X, K.Y, Top - Thick * 0.5f + 5.f), FVector(Run * 1.02f / 100.f, 0.44f, (Thick + 10.f) / 100.f)));
+				}
+				++Treads;
+				At += Run;
+			}
+		}
+	};
+	for (const FSQLane& Lane : Lanes) StairWalk(Lane.Pts, LaneHalfWidth);
+	StairWalk(RoadPts, RoadHalfWidth);
+	UE_LOG(LogSQ, Log, TEXT("Map finish: %d terrace faces, %d stair treads"), Faces, Treads);
+}
+
+bool ASQArena::NearWalkwaySpan(float X, float Y, float Pad) const
+{
+	return bWalkway && DistToSegment2D(X, Y, static_cast<float>(WalkA.X), static_cast<float>(WalkA.Y), static_cast<float>(WalkB.X), static_cast<float>(WalkB.Y)) < WalkHalfWidth + Pad;
+}
+
+void ASQArena::PlanWalkway(const USQData* D, int32 Seed)
+{
+	bWalkway = false;
+	if (!D || D->Tune(TEXT("MapWalkway"), 1.f) < 0.5f || Lanes.Num() == 0) return;
+	const float Clearance = FMath::Clamp(D->Tune(TEXT("MapWalkwayHeight"), 320.f), 220.f, 600.f);
+	WalkHalfWidth = FMath::Clamp(D->Tune(TEXT("MapWalkwayWidth"), 340.f) * 0.5f, 120.f, 400.f);
+	WalkRampLen = Clearance / FMath::Tan(FMath::DegreesToRadians(FMath::Clamp(D->Tune(TEXT("MapWalkwayRampDeg"), 20.f), 10.f, 30.f)));
+	const float SpanHalf = LaneHalfWidth + 260.f;
+	FRandomStream Rand(Seed ^ 0x2B1D5E07);
+	const int32 First = Rand.RandRange(0, Lanes.Num() - 1);
+	for (int32 Try = 0; Try < Lanes.Num() * 5; ++Try)
+	{
+		const FSQLane& Lane = Lanes[(First + Try / 5) % Lanes.Num()];
+		if (Lane.Pts.Num() < 2) continue;
+		float Total = 0.f;
+		for (int32 i = 0; i + 1 < Lane.Pts.Num(); ++i) Total += static_cast<float>(FVector2D::Distance(Lane.Pts[i], Lane.Pts[i + 1]));
+		float Want = Total * (0.3f + 0.1f * static_cast<float>(Try % 5));
+		FVector2D P = Lane.Pts[0];
+		FVector2D Dir(1.f, 0.f);
+		for (int32 i = 0; i + 1 < Lane.Pts.Num(); ++i)
+		{
+			const float Seg = static_cast<float>(FVector2D::Distance(Lane.Pts[i], Lane.Pts[i + 1]));
+			if (Seg < 1.f) continue;
+			Dir = (Lane.Pts[i + 1] - Lane.Pts[i]) / Seg;
+			if (Want <= Seg) { P = Lane.Pts[i] + Dir * Want; break; }
+			Want -= Seg;
+			P = Lane.Pts[i + 1];
+		}
+		const FVector2D Perp(-Dir.Y, Dir.X);
+		const float ZC = GroundZ(static_cast<float>(P.X), static_cast<float>(P.Y));
+		bool bOk = true;
+		for (int32 Side = -1; Side <= 1 && bOk; Side += 2)
+		{
+			for (float T = 0.f; T < SpanHalf + WalkRampLen + 150.f; T += 150.f)
+			{
+				const FVector2D Q = P + Perp * (static_cast<float>(Side) * T);
+				const float QX = static_cast<float>(Q.X);
+				const float QY = static_cast<float>(Q.Y);
+				if (FMath::Abs(GroundZ(QX, QY) - ZC) > 70.f || IsWaterAt(QX, QY)) { bOk = false; break; }
+				if (T < SpanHalf - 120.f) continue; // the span itself flies over the lane
+				if (!IsPropFootprintFree(QX, QY, WalkHalfWidth) || IsReservedSpot(QX, QY, WalkHalfWidth)
+					|| DistToRoad(QX, QY) < RoadHalfWidth + WalkHalfWidth || DistToLane(QX, QY) < LaneHalfWidth + WalkHalfWidth * 0.6f)
+				{
+					bOk = false;
+					break;
+				}
+			}
+		}
+		if (!bOk) continue;
+		WalkA = P - Perp * SpanHalf;
+		WalkB = P + Perp * SpanHalf;
+		WalkDeckZ = ZC + Clearance;
+		bWalkway = true;
+		// Horde footprint: the ramps and their abutments are solid, the piers are posts; the span over the lane stays open
+		for (int32 Side = -1; Side <= 1; Side += 2)
+		{
+			for (float T = SpanHalf + WalkHalfWidth * 0.5f; T < SpanHalf + WalkRampLen; T += WalkHalfWidth * 0.8f)
+			{
+				const FVector2D Q = P + Perp * (static_cast<float>(Side) * T);
+				BlockerSpots.Add(FVector(Q.X, Q.Y, WalkHalfWidth));
+			}
+			for (int32 Edge = -1; Edge <= 1; Edge += 2)
+			{
+				const FVector2D Q = P + Perp * (static_cast<float>(Side) * (SpanHalf - 40.f)) + Dir * (static_cast<float>(Edge) * (WalkHalfWidth - 30.f));
+				BlockerSpots.Add(FVector(Q.X, Q.Y, 50.f));
+			}
+		}
+		UE_LOG(LogSQ, Log, TEXT("Map finish: walkway over lane %d at (%.0f, %.0f), deck %.0f cm up"), (First + Try / 5) % Lanes.Num(), P.X, P.Y, Clearance);
+		return;
+	}
+	UE_LOG(LogSQ, Log, TEXT("Map finish: no clear lane crossing for the walkway this seed"));
+}
+
+void ASQArena::BuildWalkway(const USQData* /*D*/, const FSQArenaPalette& Pal)
+{
+	if (!bWalkway) return;
+	UStaticMesh* CubeMesh = SQ::Mesh(TEXT("Cube"));
+	UStaticMesh* CylMesh = SQ::Mesh(TEXT("Cylinder"));
+	if (!CubeMesh || !CylMesh) return;
+	static const FName ShapeCauseways(TEXT("Causeways"));
+	static const FName ShapeClimb(TEXT("Climb"));
+	const FLinearColor Wood(0.20f, 0.11f, 0.05f);
+	const FLinearColor Iron(0.05f, 0.05f, 0.06f);
+	const FLinearColor Brass(0.55f, 0.36f, 0.12f);
+	// Graveyard: a stone footbridge. Harbour: a timber boardwalk on posts. Clocktower: an iron gantry with brass rails.
+	FLinearColor DeckTone = Pal.Cap * 0.9f;
+	FLinearColor BodyTone = FMath::Lerp(Pal.Wall, Pal.Cliff, 0.5f) * 1.3f;
+	FLinearColor RailTone = Pal.Wall * 1.5f;
+	if (MapShape == ShapeCauseways) { DeckTone = Wood * 1.25f; BodyTone = Wood; RailTone = Wood * 1.25f; }
+	else if (MapShape == ShapeClimb) { DeckTone = Iron * 2.2f; BodyTone = Iron; RailTone = Brass * 0.5f; } // dark bronze: gold-yellow is for gold
+	UInstancedStaticMeshComponent* DeckISM = MakeArtISM(CubeMesh, SurfaceMID(this, DeckTone), true, true);
+	UInstancedStaticMeshComponent* BodyISM = MakeArtISM(CubeMesh, SurfaceMID(this, BodyTone), true, true);
+	UInstancedStaticMeshComponent* RailISM = MakeArtISM(CubeMesh, SurfaceMID(this, RailTone), true, true);
+	UInstancedStaticMeshComponent* PierISM = MakeArtISM(CylMesh, SurfaceMID(this, BodyTone), true, true);
+	UInstancedStaticMeshComponent* LampISM = MakeArtISM(CubeMesh, SurfaceMID(this, ArenaHue(Pal.Lamp), 2.4f), false, false);
+	PropBlockers.Add(DeckISM);
+	PropBlockers.Add(BodyISM);
+	PropBlockers.Add(RailISM);
+	PropBlockers.Add(PierISM);
+	MarkFadeable(DeckISM);
+
+	const FVector2D Span = WalkB - WalkA;
+	const float SpanLen = static_cast<float>(Span.Size());
+	const FVector2D Axis = Span / FMath::Max(1.f, SpanLen);
+	const FVector2D Side(-Axis.Y, Axis.X);
+	const FVector2D Mid = (WalkA + WalkB) * 0.5f;
+	const float Yaw = FMath::RadiansToDegrees(FMath::Atan2(static_cast<float>(Axis.Y), static_cast<float>(Axis.X)));
+	const float Thick = 40.f;
+	const float RailH = 110.f;
+	const float W = WalkHalfWidth;
+	// Deck and its rails
+	DeckISM->AddInstance(FTransform(FRotator(0.f, Yaw, 0.f), FVector(Mid.X, Mid.Y, WalkDeckZ - Thick * 0.5f), FVector((SpanLen + 40.f) / 100.f, W * 2.f / 100.f, Thick / 100.f)));
+	for (int32 S = -1; S <= 1; S += 2)
+	{
+		const FVector2D R = Mid + Side * (static_cast<float>(S) * (W - 8.f));
+		RailISM->AddInstance(FTransform(FRotator(0.f, Yaw, 0.f), FVector(R.X, R.Y, WalkDeckZ + RailH * 0.5f), FVector((SpanLen + 40.f) / 100.f, 0.16f, RailH / 100.f)));
+	}
+	// Piers at the four corners (outside the lane), a lantern on each rail end
+	for (int32 End = -1; End <= 1; End += 2)
+	{
+		const FVector2D EndAt = Mid + Axis * (static_cast<float>(End) * (SpanLen * 0.5f - 40.f));
+		for (int32 S = -1; S <= 1; S += 2)
+		{
+			const FVector2D Q = EndAt + Side * (static_cast<float>(S) * (W - 30.f));
+			const float Base = GroundZ(static_cast<float>(Q.X), static_cast<float>(Q.Y)) - 20.f;
+			const float Tall = WalkDeckZ - Thick - Base;
+			PierISM->AddInstance(FTransform(FRotator::ZeroRotator, FVector(Q.X, Q.Y, Base + Tall * 0.5f), FVector(0.9f, 0.9f, Tall / 100.f)));
+			LampISM->AddInstance(FTransform(FRotator(0.f, Yaw + 45.f, 0.f), FVector(Q.X, Q.Y, WalkDeckZ + RailH + 22.f), FVector(0.26f, 0.26f, 0.34f)));
+		}
+	}
+	// Ramps: pitched decks down to the ground on both ends, stepped abutments under them (solid: nobody walks under a ramp)
+	for (int32 End = -1; End <= 1; End += 2)
+	{
+		const FVector2D Top = Mid + Axis * (static_cast<float>(End) * SpanLen * 0.5f);
+		const FVector2D Foot = Top + Axis * (static_cast<float>(End) * WalkRampLen);
+		const float FootZ = GroundZ(static_cast<float>(Foot.X), static_cast<float>(Foot.Y));
+		const float RiseZ = WalkDeckZ - FootZ;
+		const float Slant = FMath::Sqrt(WalkRampLen * WalkRampLen + RiseZ * RiseZ);
+		const float Pitch = FMath::RadiansToDegrees(FMath::Atan2(RiseZ, WalkRampLen));
+		const float UpYaw = Yaw + (End > 0 ? 180.f : 0.f); // +X of the ramp points from its foot up to the deck
+		const FVector2D RampMid = (Top + Foot) * 0.5f;
+		const FRotator RampRot(Pitch, UpYaw, 0.f);
+		const FVector Down = RampRot.RotateVector(FVector(0.f, 0.f, -Thick * 0.5f));
+		DeckISM->AddInstance(FTransform(RampRot, FVector(RampMid.X, RampMid.Y, (WalkDeckZ + FootZ) * 0.5f) + Down, FVector((Slant + 30.f) / 100.f, W * 2.f / 100.f, Thick / 100.f)));
+		for (int32 S = -1; S <= 1; S += 2)
+		{
+			const FVector2D R = RampMid + Side * (static_cast<float>(S) * (W - 8.f));
+			RailISM->AddInstance(FTransform(RampRot, FVector(R.X, R.Y, (WalkDeckZ + FootZ) * 0.5f + RailH * 0.5f), FVector(Slant / 100.f, 0.16f, RailH / 100.f)));
+		}
+		const int32 Blocks = 6;
+		for (int32 Blk = 0; Blk < Blocks; ++Blk)
+		{
+			// Block Blk spans [Blk, Blk + 1] / Blocks of the ramp from the foot; its top sits under the ramp's low edge there
+			const float U0 = static_cast<float>(Blk) / Blocks;
+			const float U1 = static_cast<float>(Blk + 1) / Blocks;
+			const FVector2D BC = Foot + (Top - Foot) * ((U0 + U1) * 0.5f);
+			const float BaseZ = GroundZ(static_cast<float>(BC.X), static_cast<float>(BC.Y)) - 20.f;
+			const float TopZ = FootZ + RiseZ * U0 - Thick - 4.f;
+			if (TopZ <= BaseZ + 10.f) continue;
+			BodyISM->AddInstance(FTransform(FRotator(0.f, Yaw, 0.f), FVector(BC.X, BC.Y, (BaseZ + TopZ) * 0.5f), FVector(WalkRampLen / Blocks / 100.f * 1.02f, (W * 2.f - 30.f) / 100.f, (TopZ - BaseZ) / 100.f)));
+		}
+	}
+}
+
+void ASQArena::BuildMapSky(const USQData* D, const FSQArenaPalette& Pal, float DomeR, float EdgeZ, FRandomStream& SkyRand)
+{
+	if (D->Tune(TEXT("StyleMapSky"), 1.f) < 0.5f) return;
+	static const FName ShapeCauseways(TEXT("Causeways"));
+	static const FName ShapeClimb(TEXT("Climb"));
+	UStaticMesh* CubeMesh = SQ::Mesh(TEXT("Cube"));
+	UStaticMesh* CylMesh = SQ::Mesh(TEXT("Cylinder"));
+	UStaticMesh* SphereMesh = SQ::Mesh(TEXT("Sphere"));
+	if (!CubeMesh || !CylMesh || !SphereMesh) return;
+	const float SkyYaw = D->Tune(TEXT("StyleMapSkyYaw"), 200.f);
+	if (MapShape == ShapeCauseways)
+	{
+		// Drowned Harbour: open sea on one side to the horizon (a still sheet under the whole map, hidden by the ground inside
+		// the walls), a lighthouse on a rock out on it with a slow sweeping beam
+		UInstancedStaticMeshComponent* SeaISM = MakeArtISM(CylMesh, SurfaceMID(this, FMath::Lerp(Pal.Water, Pal.SkyHorizon, 0.18f), 0.12f), false, false);
+		SeaISM->AddInstance(FTransform(FRotator::ZeroRotator, FVector(0.f, 0.f, TerrainMinZ - 160.f), FVector(DomeR * 1.8f / 100.f, DomeR * 1.8f / 100.f, 0.05f)));
+		const FVector Dir = FRotator(0.f, SkyYaw, 0.f).Vector();
+		const FVector Rock = Dir * (Half * 1.42f + 11000.f) + FVector(0.f, 0.f, TerrainMinZ - 300.f);
+		UInstancedStaticMeshComponent* RockISM = MakeArtISM(SphereMesh, SurfaceMID(this, Pal.Backdrop * 3.f), false, false);
+		RockISM->AddInstance(FTransform(FRotator::ZeroRotator, Rock, FVector(42.f, 34.f, 12.f)));
+		UInstancedStaticMeshComponent* TowerA = MakeArtISM(CylMesh, SurfaceMID(this, FLinearColor(0.55f, 0.52f, 0.50f)), false, false);
+		UInstancedStaticMeshComponent* TowerB = MakeArtISM(CylMesh, SurfaceMID(this, FLinearColor(0.42f, 0.06f, 0.05f)), false, false);
+		const float TowerH = 2600.f;
+		const int32 Bands = 5;
+		for (int32 Band = 0; Band < Bands; ++Band)
+		{
+			const float Taper = FMath::Lerp(7.f, 4.6f, static_cast<float>(Band) / Bands);
+			(Band % 2 == 0 ? TowerA : TowerB)->AddInstance(FTransform(FRotator::ZeroRotator, Rock + FVector(0.f, 0.f, 400.f + TowerH / Bands * (Band + 0.5f)), FVector(Taper, Taper, TowerH / Bands / 100.f)));
+		}
+		BeamOrigin = Rock + FVector(0.f, 0.f, 400.f + TowerH + 220.f);
+		UInstancedStaticMeshComponent* LampHouse = MakeArtISM(SphereMesh, SurfaceMID(this, FLinearColor(1.f, 0.92f, 0.7f), 6.f), false, false);
+		LampHouse->AddInstance(FTransform(FRotator::ZeroRotator, BeamOrigin, FVector(5.f)));
+		BeamLength = FMath::Clamp(D->Tune(TEXT("StyleBeamLength"), 9000.f), 2000.f, DomeR * 0.8f);
+		UMaterialInstanceDynamic* BeamMID = SQArt::GlowMID(this, FLinearColor(1.f, 0.9f, 0.62f), FMath::Clamp(D->Tune(TEXT("StyleBeamGlow"), 0.5f), 0.f, 6.f), 0.6f);
+		BeamISM = MakeArtISM(CubeMesh, BeamMID ? BeamMID : SurfaceMID(this, FLinearColor(1.f, 0.9f, 0.62f), 2.f), false, false);
+		for (int32 Beam = 0; Beam < 2; ++Beam) BeamISM->AddInstance(FTransform(FRotator::ZeroRotator, BeamOrigin, FVector(1.f)));
+	}
+	else if (MapShape == ShapeClimb)
+	{
+		// Clocktower: a skyline of lit clock faces on towers beyond the summit; their hands follow the arena's sweeping hands
+		const FVector2D Summit = MapZones.IsValidIndex(BossZone) ? MapZones[BossZone].Centre : FVector2D(Half * 0.6f, 0.f);
+		const float BaseYaw = FMath::RadiansToDegrees(FMath::Atan2(static_cast<float>(Summit.Y), static_cast<float>(Summit.X)));
+		const int32 Clocks = FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("StyleSkyClocks"), 3.f)), 0, 6);
+		UInstancedStaticMeshComponent* TowerISM = MakeArtISM(CubeMesh, SurfaceMID(this, Pal.Backdrop * 2.5f), false, false);
+		UInstancedStaticMeshComponent* RimISM = MakeArtISM(CylMesh, SurfaceMID(this, FLinearColor(0.45f, 0.30f, 0.10f)), false, false);
+		UInstancedStaticMeshComponent* FaceISM = MakeArtISM(CylMesh, SurfaceMID(this, FMath::Lerp(FLinearColor(1.f, 0.95f, 0.82f), ArenaHue(Pal.Lamp), 0.2f), 1.6f), false, false);
+		SkyHandISM = MakeArtISM(CubeMesh, SurfaceMID(this, FLinearColor(0.03f, 0.025f, 0.03f)), false, false);
+		SkyClockRadius = FMath::Clamp(D->Tune(TEXT("StyleSkyClockSize"), 1700.f), 400.f, 6000.f);
+		SkyClockCentres.Reset();
+		SkyClockYaw.Reset();
+		for (int32 Clock = 0; Clock < Clocks; ++Clock)
+		{
+			const float Ang = BaseYaw + (static_cast<float>(Clock) - (Clocks - 1) * 0.5f) * 38.f + SkyRand.FRandRange(-6.f, 6.f);
+			const FVector Dir = FRotator(0.f, Ang, 0.f).Vector();
+			const float Dist = Half * 1.42f + 12000.f + SkyRand.FRandRange(-2000.f, 3000.f);
+			const float TowerTall = SkyRand.FRandRange(5200.f, 7600.f) * (Clock == Clocks / 2 ? 1.25f : 1.f);
+			const FVector Base = Dir * Dist + FVector(0.f, 0.f, EdgeZ - 600.f);
+			const float TowerW = SkyClockRadius * 2.5f;
+			TowerISM->AddInstance(FTransform(FRotator(0.f, Ang, 0.f), Base + FVector(0.f, 0.f, TowerTall * 0.5f), FVector(TowerW / 100.f, TowerW / 100.f, TowerTall / 100.f)));
+			TowerISM->AddInstance(FTransform(FRotator(0.f, Ang + 45.f, 0.f), Base + FVector(0.f, 0.f, TowerTall + TowerW * 0.4f), FVector(TowerW * 0.72f / 100.f, TowerW * 0.72f / 100.f, TowerW * 0.8f / 100.f)));
+			const FVector Centre = Base + FVector(0.f, 0.f, TowerTall - SkyClockRadius * 1.4f) - Dir * (TowerW * 0.5f + 20.f);
+			const FRotator FaceRot = FRotationMatrix::MakeFromZ(-Dir).Rotator();
+			RimISM->AddInstance(FTransform(FaceRot, Centre, FVector(SkyClockRadius * 2.3f / 100.f, SkyClockRadius * 2.3f / 100.f, 0.5f)));
+			FaceISM->AddInstance(FTransform(FaceRot, Centre - Dir * 30.f, FVector(SkyClockRadius * 2.f / 100.f, SkyClockRadius * 2.f / 100.f, 0.3f)));
+			SkyClockCentres.Add(Centre - Dir * 80.f);
+			SkyClockYaw.Add(Ang);
+			SkyHandISM->AddInstance(FTransform(FRotator::ZeroRotator, Centre, FVector(1.f)));
+			SkyHandISM->AddInstance(FTransform(FRotator::ZeroRotator, Centre, FVector(1.f)));
+		}
+	}
+}
+
+void ASQArena::TickMapFinish(float T)
+{
+	UWorld* World = GetWorld();
+	if (!World) return;
+	const USQData* D = USQData::Get(this);
+	const float Dt = FMath::Min(World->GetDeltaSeconds(), 0.1f);
+	const ASQGameState* GS = World->GetGameState<ASQGameState>();
+	const FSQEventDef* Ev = GS ? GS->ActiveEvent() : nullptr;
+
+	// Lighthouse beam: two opposite beams sweeping slowly round the tower
+	if (BeamISM && BeamISM->GetInstanceCount() == 2)
+	{
+		const float Spin = T * (D ? D->Tune(TEXT("StyleBeamSpin"), 14.f) : 14.f);
+		ScratchFinish.Reset();
+		for (int32 Beam = 0; Beam < 2; ++Beam)
+		{
+			const FRotator Rot(7.f, Spin + 180.f * Beam, 0.f);
+			ScratchFinish.Add(FTransform(Rot, BeamOrigin + Rot.Vector() * (BeamLength * 0.5f), FVector(BeamLength / 100.f, 4.f, 3.f)));
+		}
+		BeamISM->BatchUpdateInstancesTransforms(0, ScratchFinish, true, true, false);
+	}
+
+	// Skyline clocks: hour + minute hands; with the clock twist they show the arena's own hand angles
+	if (SkyHandISM && SkyHandISM->GetInstanceCount() == SkyClockCentres.Num() * 2 && SkyClockCentres.Num() > 0)
+	{
+		ScratchFinish.Reset();
+		const int32 Hands = ClockHandCount();
+		for (int32 Clock = 0; Clock < SkyClockCentres.Num(); ++Clock)
+		{
+			const FVector Dir = FRotator(0.f, SkyClockYaw[Clock], 0.f).Vector();
+			const FVector Right = FVector::CrossProduct(FVector::UpVector, -Dir).GetSafeNormal();
+			for (int32 Hand = 0; Hand < 2; ++Hand)
+			{
+				const float Ang = Hands > Hand ? ClockHandAngle(Hand) : (T * (Hand == 0 ? 0.01f : 0.12f) + Clock * 1.7f);
+				const FVector HandDir = (Right * FMath::Sin(Ang) + FVector::UpVector * FMath::Cos(Ang)).GetSafeNormal();
+				const float Len = SkyClockRadius * (Hand == 0 ? 0.62f : 0.9f);
+				const FRotator Rot = FRotationMatrix::MakeFromXZ(HandDir, -Dir).Rotator();
+				ScratchFinish.Add(FTransform(Rot, SkyClockCentres[Clock] + HandDir * (Len * 0.45f) - Dir * (Hand * 20.f),
+					FVector(Len / 100.f, SkyClockRadius * (Hand == 0 ? 0.12f : 0.07f) / 100.f, 0.4f)));
+			}
+		}
+		SkyHandISM->BatchUpdateInstancesTransforms(0, ScratchFinish, true, true, false);
+	}
+
+	// Event skies: the sky gradient and the moon blend to the event's look and back
+	if (SkyDomeMID || MoonMID)
+	{
+		static const FName BloodMoon(TEXT("BloodMoon"));
+		static const FName SoulStorm(TEXT("SoulStorm"));
+		const bool bEventSkies = !D || D->Tune(TEXT("StyleEventSky"), 1.f) >= 0.5f;
+		const FName Want = (bEventSkies && Ev && (Ev->Id == BloodMoon || Ev->Id == SoulStorm)) ? Ev->Id : NAME_None;
+		if (!Want.IsNone() && Want != EventSkyId && EventSkyBlend < 0.02f) EventSkyId = Want;
+		const float Target = (!Want.IsNone() && Want == EventSkyId) ? 1.f : 0.f;
+		EventSkyBlend = FMath::FInterpConstantTo(EventSkyBlend, Target, Dt, 0.5f);
+		if (FMath::Abs(EventSkyBlend - AppliedSkyBlend) > 0.004f || (EventSkyBlend == 0.f && AppliedSkyBlend != 0.f))
+		{
+			AppliedSkyBlend = EventSkyBlend;
+			const bool bBlood = EventSkyId == BloodMoon;
+			const FLinearColor EvHorizon = bBlood ? FLinearColor(0.55f, 0.05f, 0.06f) : FLinearColor(0.06f, 0.36f, 0.33f);
+			const FLinearColor EvMid = bBlood ? FLinearColor(0.20f, 0.02f, 0.04f) : FLinearColor(0.03f, 0.13f, 0.19f);
+			const FLinearColor EvZenith = bBlood ? FLinearColor(0.05f, 0.f, 0.02f) : FLinearColor(0.01f, 0.03f, 0.07f);
+			const float B = EventSkyBlend;
+			if (SkyDomeMID)
+			{
+				SkyDomeMID->SetVectorParameterValue(TEXT("Horizon"), FMath::Lerp(SkyBaseHorizon, EvHorizon, B));
+				SkyDomeMID->SetVectorParameterValue(TEXT("Mid"), FMath::Lerp(SkyBaseMid, EvMid, B));
+				SkyDomeMID->SetVectorParameterValue(TEXT("Zenith"), FMath::Lerp(SkyBaseZenith, EvZenith, B));
+			}
+			if (MoonMID)
+			{
+				const FLinearColor EvMoon = bBlood ? FLinearColor(1.f, 0.10f, 0.08f) : MoonBaseTone;
+				MoonMID->SetVectorParameterValue(TEXT("Color"), FMath::Lerp(MoonBaseTone, EvMoon, B));
+				MoonMID->SetScalarParameterValue(TEXT("Glow"), MoonBaseGlow * (1.f + (bBlood ? 0.8f : 0.f) * B));
+			}
+		}
+		// Soul Storm: teal streaks swirling round the sky
+		if (StormISM)
+		{
+			const bool bStorm = EventSkyId == SoulStorm && EventSkyBlend > 0.f;
+			if (bStorm)
+			{
+				ScratchFinish.Reset();
+				const int32 Streaks = 48;
+				for (int32 Idx = 0; Idx < Streaks; ++Idx)
+				{
+					const float Seed1 = FMath::Frac(static_cast<float>(Idx) * 0.61803f);
+					const float Seed2 = FMath::Frac(static_cast<float>(Idx) * 0.41421f + 0.37f);
+					const float Ang = Seed1 * 360.f + T * (6.f + 10.f * Seed2);
+					const float Elev = FMath::Lerp(8.f, 34.f, Seed2);
+					const FRotator Dir(Elev, Ang, 0.f);
+					const float Dist = 30000.f;
+					const float Len = (3500.f + 5600.f * Seed1) * EventSkyBlend;
+					ScratchFinish.Add(FTransform(FRotator(Elev * 0.3f, Ang + 90.f, 0.f), Dir.Vector() * (Dist + 8000.f * Seed2), FVector(Len / 100.f, 7.f, 3.f)));
+				}
+				if (StormISM->GetInstanceCount() != Streaks)
+				{
+					StormISM->ClearInstances();
+					StormISM->AddInstances(ScratchFinish, false, false);
+				}
+				else
+				{
+					StormISM->BatchUpdateInstancesTransforms(0, ScratchFinish, true, true, false);
+				}
+				bStormShown = true;
+			}
+			else if (bStormShown)
+			{
+				StormISM->ClearInstances();
+				bStormShown = false;
+			}
+		}
+	}
+
+	// District conditions: pennant standards at the conditioned districts' gates, in the condition's colour (which is the colour of
+	// the pickup it boosts: gold / XP / souls). Rebuilt only when the replicated set changes.
+	if (GS && Districts.Num() > 0)
+	{
+		uint32 Key = 0;
+		for (int32 CondIdx = 0; CondIdx < GS->ConditionIds.Num() && CondIdx < GS->ConditionDistricts.Num(); ++CondIdx)
+		{
+			Key = HashCombine(Key, HashCombine(GetTypeHash(GS->ConditionIds[CondIdx]), GetTypeHash(GS->ConditionDistricts[CondIdx] + 1)));
+		}
+		if (Key != CondKey)
+		{
+			CondKey = Key;
+			for (UInstancedStaticMeshComponent* Old : CondISMs)
+			{
+				if (Old) Old->ClearInstances();
+			}
+			UStaticMesh* CubeMesh = SQ::Mesh(TEXT("Cube"));
+			UStaticMesh* CylMesh = SQ::Mesh(TEXT("Cylinder"));
+			UStaticMesh* SphereMesh = SQ::Mesh(TEXT("Sphere"));
+			for (int32 CondIdx = 0; CubeMesh && CylMesh && SphereMesh && CondIdx < GS->ConditionIds.Num() && CondIdx < GS->ConditionDistricts.Num(); ++CondIdx)
+			{
+				const FSQEventDef* Cond = SQQuests::FindEvent(GS->ConditionIds[CondIdx]);
+				const int32 DistIdx = GS->ConditionDistricts[CondIdx];
+				if (!Cond || !Districts.IsValidIndex(DistIdx)) continue;
+				// The gate: the end of the lane that serves this district (else the district edge facing the hub)
+				FVector2D Gate = Districts[DistIdx].Centre * 0.7f;
+				FVector2D Along = Districts[DistIdx].Centre.GetSafeNormal();
+				for (const FSQLane& Lane : Lanes)
+				{
+					if (Lane.District != DistIdx || Lane.Pts.Num() < 2) continue;
+					Gate = Lane.Pts.Last();
+					Along = (Lane.Pts.Last() - Lane.Pts[Lane.Pts.Num() - 2]).GetSafeNormal();
+					break;
+				}
+				const FVector2D Side(-Along.Y, Along.X);
+				UInstancedStaticMeshComponent* PoleISM = MakeArtISM(CylMesh, SurfaceMID(this, FLinearColor(0.06f, 0.05f, 0.07f)), false, true);
+				UInstancedStaticMeshComponent* FlagISM = MakeArtISM(CubeMesh, SurfaceMID(this, Cond->Color, 0.5f), false, false);
+				UInstancedStaticMeshComponent* OrbISM = MakeArtISM(SphereMesh, SurfaceMID(this, Cond->Color, 3.f), false, false);
+				CondISMs.Add(PoleISM);
+				CondISMs.Add(FlagISM);
+				CondISMs.Add(OrbISM);
+				const float Yaw = FMath::RadiansToDegrees(FMath::Atan2(static_cast<float>(Along.Y), static_cast<float>(Along.X)));
+				for (int32 Sgn = -1; Sgn <= 1; Sgn += 2)
+				{
+					const FVector2D At = Gate + Side * (static_cast<float>(Sgn) * (LaneHalfWidth + 160.f));
+					const float Z = GroundZ(static_cast<float>(At.X), static_cast<float>(At.Y));
+					PoleISM->AddInstance(FTransform(FRotator::ZeroRotator, FVector(At.X, At.Y, Z + 260.f), FVector(0.12f, 0.12f, 5.2f)));
+					// Pennant hanging from the top, a little out toward the lane
+					const FVector2D FlagAt = At - Side * (static_cast<float>(Sgn) * 40.f);
+					FlagISM->AddInstance(FTransform(FRotator(0.f, Yaw + 90.f, 0.f), FVector(FlagAt.X, FlagAt.Y, Z + 420.f), FVector(0.7f, 0.05f, 1.4f)));
+					OrbISM->AddInstance(FTransform(FRotator::ZeroRotator, FVector(At.X, At.Y, Z + 540.f), FVector(0.42f)));
+				}
+			}
+		}
+	}
+
+	// The Trapped Spirit: a companion wisp (core + three trailing motes) circles every reaper while the Ally boost lasts
+	const bool bWisps = CompanionEndTime > 0.f && Now() < CompanionEndTime && (!D || D->Tune(TEXT("EventWisps"), 1.f) >= 0.5f);
+	if (bWisps || bWispsShown)
+	{
+		UStaticMesh* SphereMesh = SQ::Mesh(TEXT("Sphere"));
+		if (!WispCoreISM && SphereMesh)
+		{
+			const FLinearColor Spirit(0.60f, 0.94f, 1.f);
+			UMaterialInstanceDynamic* CoreMID = SQArt::GlowMID(this, Spirit, 3.f, 0.2f);
+			UMaterialInstanceDynamic* MoteMID = SQArt::GlowMID(this, Spirit, 1.6f, 0.5f);
+			WispCoreISM = MakeArtISM(SphereMesh, CoreMID ? CoreMID : SurfaceMID(this, Spirit, 4.f), false, false);
+			WispMoteISM = MakeArtISM(SphereMesh, MoteMID ? MoteMID : SurfaceMID(this, Spirit, 2.f), false, false);
+		}
+		if (WispCoreISM && WispMoteISM)
+		{
+			TArray<FTransform> Cores;
+			ScratchFinish.Reset();
+			if (bWisps)
+			{
+				const float Left = CompanionEndTime - Now();
+				const float Fade = FMath::Clamp(Left / 3.f, 0.f, 1.f);
+				int32 Idx = 0;
+				for (TActorIterator<ASQCharacter> It(World); It && Idx < 8; ++It, ++Idx)
+				{
+					const ASQCharacter* Reaper = *It;
+					if (!IsValid(Reaper) || Reaper->IsHidden()) continue;
+					const FVector Base = Reaper->GetActorLocation();
+					for (int32 Trail = 0; Trail < 4; ++Trail)
+					{
+						const float Ang = T * 2.4f + Idx * 1.9f - Trail * 0.32f;
+						const FVector At = Base + FVector(FMath::Cos(Ang) * 120.f, FMath::Sin(Ang) * 120.f, 70.f + 22.f * FMath::Sin(T * 3.1f + Idx - Trail * 0.4f));
+						if (Trail == 0) Cores.Add(FTransform(FRotator::ZeroRotator, At, FVector(0.30f * Fade)));
+						else ScratchFinish.Add(FTransform(FRotator::ZeroRotator, At, FVector((0.16f - 0.035f * Trail) * Fade)));
+					}
+				}
+			}
+			WispCoreISM->ClearInstances();
+			WispMoteISM->ClearInstances();
+			if (Cores.Num() > 0) WispCoreISM->AddInstances(Cores, false, false);
+			if (ScratchFinish.Num() > 0) WispMoteISM->AddInstances(ScratchFinish, false, false);
+			bWispsShown = Cores.Num() > 0;
+		}
+	}
+
+	// The Gilt Scuttler: a gilt shell and circling coin glints on the event's miniboss (found in the replicated horde snapshot)
+	const bool bScuttle = Ev && Ev->Special == ESQEventSpecial::Flee && GS && GS->Horde;
+	if (bScuttle || bScuttlerShown)
+	{
+		ScratchFinish.Reset();
+		TArray<FTransform> Glints;
+		if (bScuttle)
+		{
+			for (const FSQEnemyNet& Net : GS->Horde->EnemyNet)
+			{
+				if ((Net.State & 0x20) == 0) continue; // the miniboss bit (only one tracked miniboss at a time)
+				const float EX = static_cast<float>(Net.X) * 4.f;
+				const float EY = static_cast<float>(Net.Y) * 4.f;
+				const float Z = GroundZ(EX, EY);
+				ScratchFinish.Add(FTransform(FRotator(0.f, T * 40.f, 0.f), FVector(EX, EY, Z + 95.f), FVector(1.1f, 0.9f, 0.55f)));
+				for (int32 Coin = 0; Coin < 4; ++Coin)
+				{
+					const float Ang = T * 3.3f + Coin * HALF_PI;
+					Glints.Add(FTransform(FRotator(90.f, FMath::RadiansToDegrees(Ang), 0.f), FVector(EX + FMath::Cos(Ang) * 85.f, EY + FMath::Sin(Ang) * 85.f, Z + 150.f + 18.f * FMath::Sin(T * 5.f + Coin)), FVector(0.22f, 0.22f, 0.04f)));
+				}
+				break;
+			}
+		}
+		if (!ScuttlerISM)
+		{
+			UMaterialInstanceDynamic* ShellMID = SurfaceMID(this, Ev ? Ev->Color : FLinearColor(1.f, 0.79f, 0.25f), 1.4f);
+			ScuttlerISM = MakeArtISM(SQ::Mesh(TEXT("Sphere")), ShellMID, false, true);
+			WispCoinISM = MakeArtISM(SQ::Mesh(TEXT("Cylinder")), SurfaceMID(this, FLinearColor(1.f, 0.85f, 0.35f), 3.f), false, false);
+		}
+		if (ScuttlerISM && WispCoinISM)
+		{
+			ScuttlerISM->ClearInstances();
+			WispCoinISM->ClearInstances();
+			if (ScratchFinish.Num() > 0) ScuttlerISM->AddInstances(ScratchFinish, false, false);
+			if (Glints.Num() > 0) WispCoinISM->AddInstances(Glints, false, false);
+		}
+		bScuttlerShown = ScratchFinish.Num() > 0;
+	}
 }

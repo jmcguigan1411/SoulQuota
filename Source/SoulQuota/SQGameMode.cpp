@@ -1910,11 +1910,13 @@ void ASQGameMode::GrantEventReward(ASQGameState* GS, const USQData* D, const FSQ
 		}
 		else if ((Kind == TEXT("Boost") && Bits.Num() >= 4) || (Kind == TEXT("Ally") && Bits.Num() >= 2))
 		{
-			// Ally: the freed spirit lends every reaper its strength for a while (a visible companion needs new art: Docs/Content.md)
+			// Ally: the freed spirit lends every reaper its strength for a while (companion wisps: ASQArena::StartCompanion)
 			const bool bAlly = Kind == TEXT("Ally");
 			const FName Stat = bAlly ? FName(TEXT("DamageMult")) : FName(*Bits[1]);
 			const float Value = bAlly ? FMath::Clamp(D->Tune(TEXT("EventAllyDamage"), 0.2f), 0.f, 2.f) : FCString::Atof(*Bits[2]);
 			const float Seconds = FMath::Clamp(FCString::Atof(*Bits[bAlly ? 1 : 3]), 1.f, 600.f);
+			// Map finish: the freed spirit shows as a companion wisp round every reaper for as long as the boost lasts
+			if (bAlly && GS->Arena) GS->Arena->StartCompanion(Seconds);
 			if (USQBoostLedger* Ledger = USQBoostLedger::Get(this))
 			{
 				for (TActorIterator<ASQCharacter> It(World); It; ++It)
@@ -1987,6 +1989,31 @@ void ASQGameMode::TickEvents(ASQGameState* GS, const USQData* D, float DeltaSeco
 				EventPosTimer = 0.5f;
 				GS->EventPos = FVector(HuntAt.X, HuntAt.Y, 0.f);
 				GS->bEventHasPos = true;
+			}
+			// Map finish: the Gilt Scuttler (Events.csv Special Flee) bolts from the nearest standing reaper. Public horde API only:
+			// a knockback with a tight radius pushes just the creature, renewed every tick, weaving a little so it can be cut off.
+			if (Def->Special == ESQEventSpecial::Flee && GS->Horde->GetMinibossPos(HuntAt))
+			{
+				const float FleeRange = FMath::Clamp(D->Tune(TEXT("EventFleeRange"), 1500.f), 200.f, 6000.f);
+				const float FleeSpeed = FMath::Clamp(D->Tune(TEXT("EventFleeSpeed"), 460.f), 0.f, 2000.f);
+				float Best = FleeRange;
+				FVector2D From = HuntAt;
+				for (TActorIterator<ASQCharacter> It(GetWorld()); It; ++It)
+				{
+					const ASQCharacter* Reaper = *It;
+					if (!IsValid(Reaper) || Reaper->bDowned) continue;
+					const FVector2D At(Reaper->GetActorLocation().X, Reaper->GetActorLocation().Y);
+					const float Dist = static_cast<float>(FVector2D::Distance(At, HuntAt));
+					if (Dist < Best) { Best = Dist; From = At; }
+				}
+				if (Best < FleeRange && FleeSpeed > 0.f)
+				{
+					FVector2D Away = (HuntAt - From).GetSafeNormal();
+					if (Away.IsNearlyZero()) Away = FVector2D(1.f, 0.f);
+					const float Weave = FMath::DegreesToRadians(28.f) * FMath::Sin(ServerNow * 1.3f);
+					Away = FVector2D(Away.X * FMath::Cos(Weave) - Away.Y * FMath::Sin(Weave), Away.X * FMath::Sin(Weave) + Away.Y * FMath::Cos(Weave));
+					GS->Horde->ApplyKnockback(HuntAt, 36.f, Away, FleeSpeed * (0.6f + 0.4f * (1.f - Best / FleeRange)), 100000.f);
+				}
 			}
 		}
 		else if (Def->Kind == ESQEventKind::Site)

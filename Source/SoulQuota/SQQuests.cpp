@@ -134,7 +134,7 @@ namespace SQQuestData
 					const FString SpecialText = SQQuestCell(EventRow, TEXT("Special"));
 					Ev.Special = SpecialText == TEXT("Fog") ? ESQEventSpecial::Fog : (SpecialText == TEXT("KingTide") ? ESQEventSpecial::KingTide
 						: (SpecialText == TEXT("ClockFast") ? ESQEventSpecial::ClockFast : (SpecialText == TEXT("ClockReverse") ? ESQEventSpecial::ClockReverse
-						: (SpecialText == TEXT("Toll") ? ESQEventSpecial::Toll : ESQEventSpecial::None))));
+						: (SpecialText == TEXT("Toll") ? ESQEventSpecial::Toll : (SpecialText == TEXT("Flee") ? ESQEventSpecial::Flee : ESQEventSpecial::None)))));
 					Ev.Biome = FName(*SQQuestCell(EventRow, TEXT("Biome")));
 					Ev.Weight = FMath::Max(0.f, SQQuestNum(EventRow, TEXT("Weight"), 1.f));
 					Ev.Seconds = FMath::Clamp(SQQuestNum(EventRow, TEXT("Seconds"), 45.f), 5.f, 600.f);

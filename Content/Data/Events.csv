@@ -1,12 +1,12 @@
 Id,Name,Kind,Special,Biome,Weight,Seconds,Hold,Banner,Hint,SpawnMult,EliteMult,XPMult,SoulMult,GoldMult,Enemy,HealthMult,Escort,Count,Reward,Color,Model,Height
 # Run events (content item 12, Nov 24 2026). ASQGameMode::TickEvents rolls EventsPerRun of these per run from the RunSeed (and again each Long Haunt loop).
 # Kind: Ambient (map-wide for Seconds) | Hunt (a named miniboss; done when it dies) | Site (a marked spot; reapers stand in the ring for Hold seconds) | Condition (a district condition for the whole run: drops inside that district are multiplied).
-# Special: Fog (minimap fogged) | KingTide (Harbour: the tide comes in and stays in) | ClockFast / ClockReverse (Clocktower hands) | Toll (multipliers last until the site is broken).
+# Special: Fog (minimap fogged) | KingTide (Harbour: the tide comes in and stays in) | ClockFast / ClockReverse (Clocktower hands) | Toll (multipliers last until the site is broken) | Flee (a Hunt that bolts from the nearest reaper).
 # Biome: blank = any map. Weight 0 = never rolled. Mults apply while the event is active (blank = 1). Reward: Chest | Gold:N | XP:N | Boost:Stat:Value:Seconds | Ally:Seconds (several joined with +).
 # Enemy / HealthMult: the Hunt's creature. Escort / Count: a swarm that arrives with a Hunt or bursts out of a completed Site. Model = Art/Props name (primitive fallback), Height cm.
 # No commas inside Banner / Hint text.
 TitheCaravan,The Tithe Caravan,Hunt,,,10,80,,A TITHE CARAVAN IS CROSSING THE MAP,Break the strongbox bearer before it gets away,,,,,,Brute,2.5,Lurcher,8,Chest,#FFD36B,,
-GiltScuttler,The Gilt Scuttler,Hunt,,,9,45,,A GILT SCUTTLER IS LOOSE,Catch it before it burrows: it is stuffed with gold,,,,,,WickRunner,14,,0,Gold:120,#FFC940,,
+GiltScuttler,The Gilt Scuttler,Hunt,Flee,,9,45,,A GILT SCUTTLER IS LOOSE,Catch it before it burrows: it is stuffed with gold,,,,,,WickRunner,14,,0,Gold:120,#FFC940,,
 SoulStorm,Soul Storm,Ambient,,,10,40,,A SOUL STORM IS BLOWING THROUGH,Every kill sheds double souls while it lasts,,,,2,,,,,,,#5CF2D6,,
 BloodMoon,Blood Moon,Ambient,,,8,60,,THE MOON TURNS RED,More of them and more elites: richer pickings,1.35,2.5,1.5,,,,,,,,#FF4A5A,,
 FogBank,Rolling Fog Bank,Ambient,Fog,,8,50,,A FOG BANK ROLLS IN,The minimap is blind: the fog pays extra XP,,,1.3,,,,,,,,#AEB8C8,,

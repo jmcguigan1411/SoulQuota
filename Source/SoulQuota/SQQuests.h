@@ -67,7 +67,7 @@ struct FSQModifierDef
 
 /** Events.csv row (content item 12): a seeded random run event or a district condition. Docs/Content.md. */
 enum class ESQEventKind : uint8 { Ambient, Hunt, Site, Condition };
-enum class ESQEventSpecial : uint8 { None, Fog, KingTide, ClockFast, ClockReverse, Toll };
+enum class ESQEventSpecial : uint8 { None, Fog, KingTide, ClockFast, ClockReverse, Toll, Flee };
 struct FSQEventDef
 {
 	FName Id;

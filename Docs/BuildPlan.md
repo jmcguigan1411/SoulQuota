@@ -306,3 +306,11 @@ Details in Docs/Content.md and Docs/Pricing.md. Not compiled or played in Unreal
 - Needs: rebuild (new files SQEventSite.h/.cpp). No setup script.
 - To test: one mission per map watching for 3 events; a site hold solo and with a bot; King Tide; both clock events; the Daily Haunt row; a locked clause; KEEP REAPING once.
 - Later: Gilt Scuttler art and flee behaviour; visible spirit ally; sky / fog looks for Blood Moon, Soul Storm, Fog Bank; condition name on the ENTERING banner; online daily board (Steam).
+
+## Map finish (Nov 24 2026) - built, needs a compile + test
+- [x] Stairs and stone/timber-faced terrace banks (BuildTerraceFaces)
+- [x] One raised walkway per map with collision and horde footprint (PlanWalkway / BuildWalkway)
+- [x] Harbour sea horizon + lighthouse beam; Clocktower clock-face skyline (BuildMapSky)
+- [x] Blood Moon and Soul Storm event skies; Trapped Spirit companion wisps; Gilt Scuttler flee + gilt look; district condition pennants
+- [ ] Horde melee should skip reapers standing on the walkway deck (hook in Docs/Maps.md)
+- [ ] Real-art pass for the walkway / lighthouse / skyline clocks (currently engine primitives in map colours)

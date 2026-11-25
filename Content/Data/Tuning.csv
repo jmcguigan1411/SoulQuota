@@ -690,7 +690,7 @@ MapPodiums,1,Map quality pass (Nov 16 2026): 1 = each district's landmark stands
 MapSetGlow,2.6,Map quality pass: emissive strength of the lantern heads and lit windows on the Set_ / Fair_ pieces (their "Glow" material slot). 0 = unlit
 MapDistrictLights,2,Map quality pass: warm point lights per district (1 = the landmark's door; 2 = + the gate). No shadows. 0 = none
 MapDistrictLightRadius,1400,Map quality pass: reach of those district lights (cm)
-MapSpanSpacing,1800,Map quality pass: a bunting span (Biomes.csv SetPieces role Span) crosses each lane every this many cm; never within 13 m of a plaza
+MapSpanSpacing,1800,Map quality pass: a bunting span (Biomes.csv SetPieces role Span) crosses each lane every this many cm; keep-out from plazas = MapSpanKeepOut
 MapSpanMax,24,Map quality pass: most bunting spans on one map
 MapSceneryGround,1,Map quality pass: ground art under the planned scenery (paved promenade behind the yard wall; aprons round buildings; worn trails to the shoulders; moss rings round trees and grave plots; contact shade). 0 = none
 MapGroundBlotch,0.55,Map quality pass: strength of the big painterly ground blotches (pale clearings / dark hollows) between the districts. 0 = none
@@ -769,3 +769,27 @@ DistrictConditions,2,District conditions rolled per run (0 = off)
 DailyGoldBonus,40,Banked gold for the first Daily Haunt finished each day
 KingTideRise,120,cm the King Tide stands above the normal high tide
 ClockFastRate,2,Clock hand speed multiplier during The Clock Runs Fast
+MapSpanKeepOut,2700,Map finish pass: no bunting span within this many cm outside a plaza edge (keeps the landmark sightline clear)
+MapLaneLampLightMax,28,Map finish pass: most lane lights (one soft unshadowed light per lamp pair; 0 = lamps glow only)
+MapLaneLampLightScale,0.55,Map finish pass: lane light brightness as a share of MapLightIntensity
+MapLaneLampLightRadius,900,Map finish pass: lane light reach in cm
+# Map finish (Nov 24 2026): stairs + terrace faces, raised walkway, per-map skies, event skies, companion wisps, Gilt Scuttler
+MapTerraceFaces,1,Stone (Harbour: timber) faces on terrace banks + stair treads where lanes / the road climb (0 = off)
+MapTerraceFaceSlope,12,Bank steepness (deg) that gets a face / stairs
+MapTerraceFaceStep,200,Face slab size (cm) and grid step
+MapStairRise,24,Stair riser height (cm)
+MapWalkway,1,One raised walkway per map: a footbridge over a lane with ramps (0 = off)
+MapWalkwayHeight,320,Walkway deck height above the lane (cm)
+MapWalkwayWidth,340,Walkway deck width (cm)
+MapWalkwayRampDeg,20,Walkway ramp slope (deg)
+StyleMapSky,1,Per-map skies: Harbour sea horizon + lighthouse; Clocktower clock-face skyline (0 = off)
+StyleMapSkyYaw,200,Direction (deg) of the Harbour sea / lighthouse
+StyleBeamLength,9000,Lighthouse beam length (cm; tilted 7 deg up so it never bars the horizon)
+StyleBeamGlow,0.5,Lighthouse beam brightness
+StyleBeamSpin,14,Lighthouse beam sweep (deg/s)
+StyleSkyClocks,3,Clocktower skyline clock towers
+StyleSkyClockSize,1700,Skyline clock face radius (cm)
+StyleEventSky,1,Blood Moon / Soul Storm change the sky while active (0 = off)
+EventWisps,1,The Trapped Spirit's companion wisps round every reaper (0 = off)
+EventFleeRange,1500,Gilt Scuttler: bolts when a reaper is this close (cm)
+EventFleeSpeed,460,Gilt Scuttler: flee push (cm/s)
