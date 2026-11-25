@@ -73,6 +73,8 @@ struct FSQPlayerRunStats
 	UPROPERTY() int32 GoldBanked = 0;
 	UPROPERTY() int32 Augments = 0;
 	UPROPERTY() bool bBot = false;
+	/** Nov 25 2026: souls this reaper banked this run (they go into the player's soul bank: skins) */
+	UPROPERTY() int32 SoulsBanked = 0;
 };
 
 /** Victory / defeat screen (ASQGameState::RunStats, filled by ASQGameMode::EndRun) */
@@ -100,6 +102,14 @@ struct FSQRunStats
 	/** The crew wiped inside a loop: still a win, with the loop's unlocked gold banked at the loss share */
 	UPROPERTY() bool bDiedInLoop = false;
 	UPROPERTY() int32 LoopBonusGold = 0;
+	// ---- Run structure (Nov 25 2026, Docs/RunStructure.md)
+	UPROPERTY() int32 StageCount = 1;
+	UPROPERTY() int32 StagesCleared = 0;
+	UPROPERTY() bool bEndless = false;
+	UPROPERTY() float EndlessSeconds = 0.f;
+	UPROPERTY() int32 EndlessKills = 0;
+	UPROPERTY() int32 RunKills = 0;
+	UPROPERTY() int32 SoulsBanked = 0;
 	UPROPERTY() TArray<FSQPlayerRunStats> Players;
 };
 

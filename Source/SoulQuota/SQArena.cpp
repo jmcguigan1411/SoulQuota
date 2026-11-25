@@ -1419,6 +1419,12 @@ float ASQArena::TideLevel() const
 		const float Ramp = FMath::Min(Smooth01(FMath::Clamp((Now() - TideGS->EventStartTime) / 6.f, 0.f, 1.f)), Smooth01(FMath::Clamp((TideGS->EventEndTime - Now()) / 6.f, 0.f, 1.f)));
 		Level = FMath::Lerp(Level, TideHighZ + Rise, Ramp);
 	}
+	// Nov 25 2026: the Drowned King's Flood / King Tide pushes the water up past the high mark while it holds
+	if (TideGS && TideGS->BossTideEnd > TideGS->BossTideStart && TideGS->BossTideRise > 0.f)
+	{
+		const float BossRamp = FMath::Min(Smooth01(FMath::Clamp((Now() - TideGS->BossTideStart) / 2.5f, 0.f, 1.f)), Smooth01(FMath::Clamp((TideGS->BossTideEnd - Now()) / 2.5f, 0.f, 1.f)));
+		Level = FMath::Lerp(Level, TideHighZ + TideGS->BossTideRise, BossRamp);
+	}
 	return Level;
 }
 

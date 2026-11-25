@@ -1083,6 +1083,7 @@ void ASQPlayerController::ServerPickReaper_Implementation(int32 Index)
 	if (!bLobby && C && C->bDowned) return; // a late joiner's pick can't be used to stand back up
 
 	PS->ReaperId = PickedDef.Id;
+	PS->PickSkinForReaper(); // Nov 25 2026: the skin this player wears on the new reaper (before InitReaper builds the look)
 	if (C) C->InitReaper(PS->ReaperId);
 }
 

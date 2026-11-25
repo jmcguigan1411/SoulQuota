@@ -64,4 +64,12 @@ protected:
 	float PostArtZ = 0.f;
 	float BeamHeight = 5000.f;
 	float BeamWidth = 0.9f;
+	/** Nov 25 2026: the trail moved on; the lantern's flame flies from FlightFrom to the new site once this machine sees it move */
+	bool bFlightPending = false;
+	/** Nov 25 2026: overflow look (the boss climbing out) */
+	float OverflowFx = 0.f;
+	bool bWasOverflowing = false;
+	float LanternBaseIntensity = 30000.f;
+	FVector FlightFrom = FVector::ZeroVector;
+	void LaunchFlight(const FVector& From, const FVector& To);
 };

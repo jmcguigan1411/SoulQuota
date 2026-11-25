@@ -9,6 +9,8 @@ Nothing here has been compiled or played in Unreal. Checked only with the cloud 
 - 12 Events and modifiers: DONE in code (commits e1c2824, 51ca8a2 and the docs commit after them). Built / not built listed in section 12.
 
 ## 10. The Long Haunt (optional loops after the boss)
+
+> Nov 25 2026: switched off (Tuning EndlessLoops 0). The 3-stage run chain and the endless horde after the last boss replace it (Docs/RunStructure.md); its quests were retired.
 - After the boss the host (or solo player) chooses CASH OUT or KEEP REAPING. Host decides; there is no vote.
 - A loop relights the lantern trail on a new seeded route, ramps health, damage, elites and Difficulty, and brings the boss back with a cycling twist.
 - Rewards lock each time a loop's boss falls; dying later keeps what was locked.

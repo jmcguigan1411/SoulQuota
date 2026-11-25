@@ -93,6 +93,8 @@ namespace SQInput
 	// ---- accessibility switches read by drawing code (cached from the profile by Poll, so hot paths do not load it)
 	bool ShapeCues();
 	bool ReduceFlash();
+	/** Colour-blind filter (USQSaveGame::ColourBlindMode 0 off .. 3 tritan, strength 0..1); cheap, only applies on change */
+	void ApplyColourVision(uint8 Mode, float Strength);
 	/** 1, or 0.3 with SETTINGS > Reduce flashes */
 	float FlashScale();
 }

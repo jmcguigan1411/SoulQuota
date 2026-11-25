@@ -107,10 +107,6 @@ HardWin1,Hard Bargain,Challenge,Win a mission on Hard.,HardWins,1,Total,Coins:50
 Meta10,Investing in Yourself,Economy,Buy 10 permanent upgrades in Death's Office.,MetaRanks,10,Total,Coins:200
 Meta60,Fully Vested,Economy,Buy 60 permanent upgrades in Death's Office.,MetaRanks,60,Total,Coins:2500
 GoldBank50k,Rainy Day Fund,Economy,"Bank 50,000 gold.",GoldBanked,50000,Total,Coins:1000
-Haunt1,Once More Round,Challenge,Clear a haunt: beat the boss again after choosing KEEP REAPING.,LoopsCleared,1,Total,Coins:150
-Haunt3,Third Time Round,Challenge,Clear 3 haunts in one run.,LoopsCleared,3,Best,Coins:400
-Haunt5,Long Haunt,Challenge,Clear 5 haunts in one run.,LoopsCleared,5,Best,Coins:900
-Haunt25,Repeat Business,Challenge,Clear 25 haunts in total.,LoopsCleared,25,Total,Coins:600
 # --- Content pass (Nov 24 2026, Docs/Content.md item 11): mid-ladder milestones so something lands every ~20 min, first-time milestones, trail colours
 Reaped15000,Warming Up,Combat,"Reap 15,000 enemies.",Kills,15000,Total,Coins:60
 Reaped30000,Thinning the Herd,Combat,"Reap 30,000 enemies.",Kills,30000,Total,Cosmetic:TrailMoss
@@ -178,6 +174,18 @@ Runs40,Still Here,Progress,Play 40 missions (win or lose).,RunsPlayed,40,Total,C
 Runs50,Fifty Outings,Progress,Play 50 missions (win or lose).,RunsPlayed,50,Total,Coins:130
 CoopFirst,Many Hands,Challenge,Finish a mission with at least one other player.,CoopRuns,1,Total,Coins:150
 ComboFirst,Better Together,Challenge,Land a squad combo with a teammate.,SquadCombos,1,Total,Coins:100
-HauntFirst,One More Lap,Challenge,Choose KEEP REAPING after a boss.,LoopsBegun,1,Total,Coins:100
 Daily1,Today's Special,Challenge,Finish a Daily Haunt.,DailyRuns,1,Total,Coins:80
 Daily7,Regular Haunt,Challenge,Finish 7 Daily Haunts.,DailyRuns,7,Total,Coins:200
+# --- Run structure (Nov 25 2026, Docs/RunStructure.md): stages, the endless horde, skins. The Long Haunt quests were retired with it. ---
+Stage2,Down the Rift,Progress,Clear a stage and follow the boss's soul through the rift.,StagesCleared,1,Total,Coins:100
+Stages3,The Whole Descent,Progress,Clear all 3 stages in one run.,StagesCleared,3,Best,Coins:400
+FullClear1,Into the Endless,Challenge,Beat every stage boss and face the endless horde.,FullClears,1,Total,Coins:500
+FullClear10,Regular in the Deep,Challenge,Reach the endless horde 10 times.,FullClears,10,Total,Coins:1500
+Endless250,Hold the Line,Challenge,Reap 250 enemies in one endless horde.,EndlessKills,250,Best,Coins:300
+Endless1000,The Thousand,Challenge,Reap 1000 enemies in one endless horde.,EndlessKills,1000,Best,Coins:900
+Endless300s,Five More Minutes,Challenge,Survive 5 minutes in the endless horde.,EndlessSeconds,300,Best,Coins:500
+Endless600s,Overtime Never Ends,Challenge,Survive 10 minutes in the endless horde.,EndlessSeconds,600,Best,Coins:1200
+Stages50,Frequent Faller,Progress,Clear 50 stages in total.,StagesCleared,50,Total,Coins:800
+Skin1,New Look,Reapers,Buy your first skin with banked souls.,SkinsOwned,1,Total,Coins:150
+Skin10,Wardrobe of the Dead,Reapers,Own 10 skins.,SkinsOwned,10,Total,Coins:1000
+Souls50k,Soul Hoarder,Progress,"Bank 50,000 souls in total (every run, every stage).",SoulsEarned,50000,Total,Coins:2000

@@ -28,6 +28,7 @@
 #include "SQAugments.h"
 #include "SQRise.h"
 #include "SQTutorial.h"
+#include "SQSoulRift.h"
 
 ASQGameMode::ASQGameMode()
 {
@@ -139,7 +140,11 @@ void ASQGameMode::PostLogin(APlayerController* NewPlayer)
 	// The listen-server host's own Death's Office ranks (remote clients send theirs from ASQPlayerState::ClientInitialize)
 	if (NewPlayer && NewPlayer->IsLocalController())
 	{
-		if (ASQPlayerState* HostPS = NewPlayer->GetPlayerState<ASQPlayerState>()) HostPS->SendMetaRanks();
+		if (ASQPlayerState* HostPS = NewPlayer->GetPlayerState<ASQPlayerState>())
+		{
+			HostPS->SendMetaRanks();
+			HostPS->SendSkins();
+		}
 	}
 }
 
@@ -469,6 +474,22 @@ void ASQGameMode::Tick(float DeltaSeconds)
 
 	case ESQPhase::Night:
 	{
+		// Nov 25 2026 run structure: between stages (soul rift / passage) and the endless horde run their own clocks
+		if (GS->bSoulRift)
+		{
+			TickSoulRift(GS, D, DeltaSeconds);
+			break;
+		}
+		if (GS->bSoulPassage)
+		{
+			TickSoulPassage(GS, D, DeltaSeconds);
+			break;
+		}
+		if (GS->bEndlessHorde)
+		{
+			TickEndless(GS, D, DeltaSeconds);
+			break;
+		}
 		// The Long Haunt: the field is clear while the host decides; no answer in time = cash out
 		if (GS->LoopChoiceTimeLeft > 0.f)
 		{
@@ -515,8 +536,24 @@ void ASQGameMode::Tick(float DeltaSeconds)
 			GS->HeldXP = 0;
 			GS->AddTeamXP(HeldNow);
 		}
+		if (UseLanternBoss())
+		{
+			// Nov 25 2026: the last lantern filled (or burnt out) overflows and the stage boss climbs out of it.
+			// Objectives are bonuses now (their rewards only), never a gate.
+			if (!GS->bBossReady && Director.IsTrailDone()) BeginOverflow();
+			if (GS->OverflowTimeLeft > 0.f)
+			{
+				GS->OverflowTimeLeft -= DeltaSeconds;
+				if (GS->OverflowTimeLeft <= 0.f)
+				{
+					GS->OverflowTimeLeft = 0.f;
+					StartBossFight(nullptr);
+					break;
+				}
+			}
+		}
 		// Every objective resolved: the bell rises (the boss is summoned when the crew is ready)
-		if (!GS->bBossReady && Director.IsRunning() && Director.AllResolved()) RaiseBell();
+		else if (!GS->bBossReady && Director.IsRunning() && Director.AllResolved()) RaiseBell();
 		if (IsValid(GS->Portal) && !GS->Portal->bRung) GS->Portal->bArmed = GS->bBossReady;
 		if (GS->Phase == ESQPhase::Night) CheckWipe();
 		break;
@@ -551,6 +588,7 @@ void ASQGameMode::Tick(float DeltaSeconds)
 		{
 			if (GS->Horde) GS->Horde->GiveGold(nullptr, static_cast<float>(NewlyBanked) * FMath::Max(0.f, D->Tune(TEXT("SoulGold"), 0.25f)) * GS->GoldMultiplier());
 			CreditAll(GS, TEXT("SoulsBanked"), NewlyBanked);
+			GS->RunSoulsBanked += NewlyBanked;
 		}
 	}
 	LastBanked = GS->Banked;
@@ -693,6 +731,28 @@ void ASQGameMode::StartStage()
 	const USQData* D = USQData::Get(this);
 	if (!GS || !D) return;
 	if (!GS->GetMission()) ApplyMissionChoice();
+
+	// Nov 25 2026 run structure: the run is a chain of RunStages missions in Missions.csv order, starting at the host's pick
+	StageChain.Reset();
+	{
+		const TArray<FSQMissionDef>& AllMissions = USQMissions::Missions();
+		const int32 Want = FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("RunStages"), 3.f)), 1, FMath::Max(1, AllMissions.Num()));
+		const int32 First = FMath::Max(0, AllMissions.IndexOfByPredicate([GS](const FSQMissionDef& Each) { return Each.Id == GS->MissionId; }));
+		for (int32 StageIdx = 0; StageIdx < Want && AllMissions.Num() > 0; ++StageIdx) StageChain.Add(AllMissions[(First + StageIdx) % AllMissions.Num()].Id);
+		if (StageChain.Num() == 0 && !GS->MissionId.IsNone()) StageChain.Add(GS->MissionId);
+	}
+	GS->RunStage = 0;
+	GS->RunStageCount = FMath::Max(1, StageChain.Num());
+	GS->NextStageName.Reset();
+	GS->OverflowTimeLeft = 0.f;
+	GS->bSoulRift = false;
+	GS->bSoulPassage = false;
+	GS->bEndlessHorde = false;
+	GS->EndlessSeconds = 0.f;
+	GS->EndlessKills = 0;
+	GS->RunKills = 0;
+	GS->RunSoulsBanked = 0;
+	if (StageChain.Num() > 0) GS->MissionId = StageChain[0];
 	const FSQMissionDef* Mission = GS->GetMission();
 
 	const int32 Players = CountTeam();
@@ -768,7 +828,7 @@ void ASQGameMode::StartStage()
 	const FSQBiomeDef* Biome = D->FindBiome(CurrentBiome());
 	if (Director.HasTrail())
 	{
-		GS->PushAlert(FString::Printf(TEXT("%s%s - bank souls at the lit lantern: each one you fill lights the next across the map. %s"), Mission ? *Mission->Name : TEXT("Mission"),
+		GS->PushAlert(FString::Printf(TEXT("%s%s - bank souls at the lit lantern: each one you fill lights the next; fill the last and the boss climbs out. %s"), Mission ? *Mission->Name : TEXT("Mission"),
 			GS->bHardMode ? TEXT(" (HARD)") : TEXT(""), (Biome && !Biome->GimmickText.IsEmpty()) ? *Biome->GimmickText : TEXT("")));
 	}
 	else
@@ -847,8 +907,13 @@ void ASQGameMode::BeginFinalSwarm()
 	GS->PhaseTimeLeft = 0.f;
 	GS->StageTime = GS->StageDuration;
 	GS->bFinalCall = false;
-	// The timeline is over: what is left fails (Defiance) and the bell rises anyway
+	// The timeline is over: what is left fails (Defiance) and the bell rises anyway (lantern boss: the boss rises)
 	Director.FailRemaining();
+	if (UseLanternBoss())
+	{
+		if (!GS->bBossReady) BeginOverflow();
+		return;
+	}
 	RaiseBell();
 	// The tier at minute 0 announces itself (TickTimeline); this alert covers a Timeline.csv without one
 	GS->PushAlert(TEXT("TIME'S UP. The Final Swarm is coming - ring the Appointment Bell (interact) to face the boss!"));
@@ -887,9 +952,9 @@ void ASQGameMode::StartBossFight(ASQCharacter* RungBy)
 	{
 		FActorSpawnParameters P;
 		P.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-		// The boss rises beside the bell (or the lantern without one)
+		// The boss rises beside the bell (or the lantern without one; Nov 25: it climbs out right at the overflowing lantern)
 		const FVector Center = IsValid(GS->Portal) ? GS->Portal->GetActorLocation() : (GS->Lantern ? GS->Lantern->GetActorLocation() : FVector::ZeroVector);
-		const float BossX = static_cast<float>(Center.X) + 900.f;
+		const float BossX = static_cast<float>(Center.X) + (IsValid(GS->Portal) ? 900.f : 520.f);
 		const float BossY = static_cast<float>(Center.Y);
 		const FVector Loc(BossX, BossY, ASQArena::GroundZAt(this, BossX, BossY) + 300.f);
 		Boss = GetWorld()->SpawnActor<ASQBoss>(ASQBoss::StaticClass(), Loc, FRotator::ZeroRotator, P);
@@ -938,7 +1003,8 @@ void ASQGameMode::StartBossFight(ASQCharacter* RungBy)
 	BossFightStart = GetWorld()->GetTimeSeconds();
 	const FString DefianceText = GS->Defiance > 0 ? FString::Printf(TEXT(" Failed objectives: DEFIANCE x%d!"), GS->Defiance) : FString(TEXT(""));
 	const FString Who = (RungBy && RungBy->GetPlayerState()) ? RungBy->GetPlayerState()->GetPlayerName() : FString(TEXT("Someone"));
-	GS->PushAlert(FString::Printf(TEXT("%s rang the Appointment Bell. %s rises: \"%s\"%s"), *Who, *Def->Name, *Def->IntroLine, *DefianceText));
+	if (UseLanternBoss() && !RungBy) GS->PushAlert(FString::Printf(TEXT("%s climbs out of the lantern: \"%s\"%s"), *Def->Name, *Def->IntroLine, *DefianceText));
+	else GS->PushAlert(FString::Printf(TEXT("%s rang the Appointment Bell. %s rises: \"%s\"%s"), *Who, *Def->Name, *Def->IntroLine, *DefianceText));
 	GS->Phase = ESQPhase::Boss;
 }
 
@@ -956,8 +1022,10 @@ void ASQGameMode::HandleBossDefeated()
 	// Only a live boss fight can be won (a kill landing after a wipe / run end must not start a 2nd EndRun)
 	if (GS->Phase != ESQPhase::Boss) return;
 
+	FVector BossAt = GS->Lantern ? GS->Lantern->GetActorLocation() : FVector::ZeroVector;
 	if (IsValid(GS->Boss))
 	{
+		BossAt = GS->Boss->GetActorLocation();
 		if (const FSQBossDef* Def = D->FindBoss(GS->Boss->BossId))
 		{
 			GS->StoryText = Def->ContractText;
@@ -987,6 +1055,26 @@ void ASQGameMode::HandleBossDefeated()
 		CreditAll(GS, TEXT("SwarmSeconds"), FMath::FloorToInt(GS->FinalSwarmSeconds));
 	}
 	GS->MinibossName.Reset();
+	// Nov 25 2026 run structure: the stage is cleared; the soul rift to the next map, or the endless horde after the last
+	if (GS->LoopIndex == 0 && (GS->RunStageCount > 1 || D->Tune(TEXT("EndlessHorde"), 1.f) >= 0.5f))
+	{
+		CreditAll(GS, TEXT("StagesCleared"));
+		for (APlayerState* ClearPS : GS->PlayerArray)
+		{
+			ASQPlayerState* ClearSQ = Cast<ASQPlayerState>(ClearPS);
+			if (ClearSQ && !ClearSQ->IsABot() && Cast<APlayerController>(ClearSQ->GetOwner())) ClearSQ->ClientStageCleared(GS->MissionId, GS->bHardMode);
+		}
+		if (GS->RunStage + 1 < GS->RunStageCount)
+		{
+			BeginSoulRift(BossAt);
+			return;
+		}
+		if (D->Tune(TEXT("EndlessHorde"), 1.f) >= 0.5f)
+		{
+			BeginEndless();
+			return;
+		}
+	}
 	// The Long Haunt: a cleared loop locks its bonus; then the host chooses to cash out or go round again
 	if (GS->LoopIndex > 0)
 	{
@@ -1132,7 +1220,8 @@ void ASQGameMode::EndRun(bool bWon)
 	const bool bWasBossFight = GS->Phase == ESQPhase::Boss;
 	// The Long Haunt: once the mission boss has fallen the run is a win however it ends. A wipe in a later loop keeps
 	// what was locked at the last boss (at the win share) and banks the rest at the loss share.
-	const bool bDiedInLoop = !bWon && bLoopVictoryLocked;
+	// Nov 25 2026: the endless horde ends on a wipe, and the run is a full win (every boss fell): all of it banks at the win share
+	const bool bDiedInLoop = !bWon && bLoopVictoryLocked && !GS->bEndlessHorde;
 	if (bLoopVictoryLocked) bWon = true;
 	GS->LoopChoiceTimeLeft = 0.f;
 
@@ -1170,6 +1259,15 @@ void ASQGameMode::EndRun(bool bWon)
 	Stats.LoopBonusGold = GS->LoopBonusGold;
 	Stats.bDiedInLoop = bDiedInLoop;
 	Stats.bFirstClear = bWon && HostSave && (GS->bHardMode ? !HostSave->HasClearedHard(GS->MissionId) : !HostSave->HasClearedMission(GS->MissionId));
+	// Run structure (Nov 25 2026)
+	Stats.StageCount = GS->RunStageCount;
+	Stats.StagesCleared = GS->bEndlessHorde ? GS->RunStageCount : (bWon ? GS->RunStage + 1 : GS->RunStage);
+	Stats.bEndless = GS->bEndlessHorde;
+	Stats.EndlessSeconds = GS->EndlessSeconds;
+	Stats.EndlessKills = GS->EndlessKills;
+	Stats.RunKills = SumKills(GS);
+	Stats.SoulsBanked = GS->RunSoulsBanked;
+	if (GS->bEndlessHorde) Stats.StageSeconds = GS->StageTime + GS->EndlessSeconds;
 	const bool bAllObjectives = Stats.ObjectivesTotal > 0 && Stats.ObjectivesDone >= Stats.ObjectivesTotal;
 	Director.End();
 
@@ -1204,6 +1302,7 @@ void ASQGameMode::EndRun(bool bWon)
 		Line.GoldBanked = QuestPS->IsABot() ? 0 : Banked;
 		Line.Augments = QuestPS->OwnedAugments.Num();
 		Line.bBot = QuestPS->IsABot();
+		Line.SoulsBanked = QuestPS->RunSoulsBanked;
 		if (QuestPS->IsABot() || !Cast<APlayerController>(QuestPS->GetOwner())) continue;
 
 		QuestPS->CreditQuest(TEXT("RunsPlayed"));
@@ -1236,6 +1335,13 @@ void ASQGameMode::EndRun(bool bWon)
 		QuestPS->FlushQuests();
 		// Bank first (marks the mission cleared: derived quest stats), then the quest run end folds the bests and saves
 		QuestPS->ClientMissionEnd(GS->MissionId, GS->bHardMode, bPlayerWon, Banked, Stats.StageSeconds);
+		// Souls banked this run go into this player's soul bank (skins); endless records
+		QuestPS->ClientRunRecords(QuestPS->RunSoulsBanked, Stats.StagesCleared, Stats.bEndless, Stats.EndlessSeconds, Stats.EndlessKills, QuestPS->Kills, QuestPS->ReaperId);
+		if (Stats.bEndless)
+		{
+			QuestPS->CreditQuest(TEXT("EndlessKills"), Stats.EndlessKills);
+			QuestPS->CreditQuest(TEXT("EndlessSeconds"), FMath::FloorToInt(Stats.EndlessSeconds));
+		}
 		QuestPS->ClientQuestRunEnd(bPlayerWon, QuestPS->ReaperId, 0);
 		if (GS->LoopIndex > 0) QuestPS->ClientLoopBest(GS->MissionId, QuestPS->ReaperId, GS->LoopIndex, GS->bHardMode);
 	}
@@ -1256,7 +1362,12 @@ void ASQGameMode::EndRun(bool bWon)
 	GS->PhaseTimeLeft = GS->PhaseDuration;
 	int32 CrewSize = 0;
 	for (TActorIterator<ASQCharacter> CrewIt(GetWorld()); CrewIt; ++CrewIt) CrewSize++;
-	GS->PushAlert(bDiedInLoop ? FString::Printf(TEXT("The crew fell on Haunt %d. The mission still counts, and everything locked at the last boss is banked."), GS->LoopIndex)
+	if (GS->bEndlessHorde)
+	{
+		GS->PushAlert(FString::Printf(TEXT("THE HORDE TAKES YOU. %d kills in %d:%02d of the endless horde, %d souls banked."), Stats.EndlessKills,
+			FMath::FloorToInt(GS->EndlessSeconds / 60.f), FMath::FloorToInt(GS->EndlessSeconds) % 60, Stats.SoulsBanked));
+	}
+	else GS->PushAlert(bDiedInLoop ? FString::Printf(TEXT("The crew fell on Haunt %d. The mission still counts, and everything locked at the last boss is banked."), GS->LoopIndex)
 		: bWon ? FString::Printf(TEXT("MISSION COMPLETE! %s is closed. Death is... mildly impressed."), Mission ? *Mission->Name : TEXT("The contract"))
 		: (CrewSize <= 1 ? FString(TEXT("Reaped. Death is filling out the paperwork.")) : FString(TEXT("The whole crew is skulls. Death is filling out the paperwork."))));
 }
@@ -1300,6 +1411,8 @@ void ASQGameMode::ResetRun()
 	GS->Portal = nullptr;
 	for (TActorIterator<ASQChest> ChestIt(GetWorld()); ChestIt; ++ChestIt) ChestIt->Destroy();
 	for (TActorIterator<ASQObjective> PartIt(GetWorld()); PartIt; ++PartIt) PartIt->Destroy();
+	for (TActorIterator<ASQSoulRift> RiftIt(GetWorld()); RiftIt; ++RiftIt) RiftIt->Destroy();
+	RiftEntered.Reset();
 	BeatsFired.Reset();
 	// Stale pick pause / clocks from the last run
 	GS->bPickPause = false;
@@ -1364,8 +1477,12 @@ void ASQGameMode::SkipPhase()
 		}
 		break;
 	case ESQPhase::Night:
-		// Cheat skip: bell up -> straight to the boss; otherwise to the end of the stage clock (overtime, the bell rises)
-		if (GS->bBossReady) StartBossFight(nullptr);
+		// Cheat skip: rift -> passage -> next stage; lantern boss: straight to the boss; bell up -> the boss; else the stage clock
+		if (GS->bSoulRift) BeginPassage();
+		else if (GS->bSoulPassage) GS->PassageTimeLeft = 0.f;
+		else if (GS->bEndlessHorde) break;
+		else if (UseLanternBoss()) StartBossFight(nullptr);
+		else if (GS->bBossReady) StartBossFight(nullptr);
 		else GS->StageTime = GS->StageDuration;
 		break;
 	case ESQPhase::Boss: if (GS->Boss) GS->Boss->TakeBossDamage(1.e9f, nullptr); break;
@@ -1507,6 +1624,17 @@ void ASQGameMode::HandleUse(ASQPlayerState* PS)
 	if (BestChest)
 	{
 		BestChest->TryOpen(PS);
+		return;
+	}
+	// The Soul Passage: the host (or solo player) drops early once nobody is still picking
+	if (GS->bSoulPassage)
+	{
+		const APlayerController* UsePC = Cast<APlayerController>(PS->GetOwner());
+		if (UsePC && UsePC->IsLocalController() && !GS->bPickPause && GS->PassageTimeLeft > 1.5f)
+		{
+			GS->PassageTimeLeft = 1.5f;
+			GS->PushAlert(TEXT("Dropping into the next underworld..."));
+		}
 		return;
 	}
 
@@ -2093,4 +2221,359 @@ void ASQGameMode::TickEvents(ASQGameState* GS, const USQData* D, float DeltaSeco
 		// Could not start for a while (a miniboss in the way, no clear spot): skip this slot rather than stack up
 		EventsStarted++;
 	}
+}
+
+// ================================================================ run structure (Nov 25 2026, Docs/RunStructure.md)
+
+bool ASQGameMode::UseLanternBoss() const
+{
+	const USQData* D = USQData::Get(this);
+	return D && D->Tune(TEXT("BossFromLantern"), 1.f) >= 0.5f && Director.HasTrail();
+}
+
+int32 ASQGameMode::SumKills(const ASQGameState* GS) const
+{
+	int32 Total = 0;
+	if (!GS) return 0;
+	for (APlayerState* EachPS : GS->PlayerArray)
+	{
+		if (const ASQPlayerState* EachSQ = Cast<ASQPlayerState>(EachPS)) Total += EachSQ->Kills;
+	}
+	return Total;
+}
+
+FVector ASQGameMode::PassageSpot() const
+{
+	const USQData* D = USQData::Get(this);
+	// High above the middle of the map, well under the sky dome (StyleSkyRadius 90000)
+	return FVector(0.f, 0.f, D ? FMath::Clamp(D->Tune(TEXT("SoulPassageHeight"), 30000.f), 5000.f, 60000.f) : 30000.f);
+}
+
+void ASQGameMode::BeginOverflow()
+{
+	ASQGameState* GS = GetGameState<ASQGameState>();
+	const USQData* D = USQData::Get(this);
+	if (!GS || !D || GS->bBossReady) return;
+	GS->bBossReady = true;
+	GS->OverflowTimeLeft = FMath::Clamp(D->Tune(TEXT("OverflowSeconds"), 4.f), 0.5f, 15.f);
+	const FSQMissionDef* Mission = GS->GetMission();
+	const FSQBossDef* Def = Mission ? D->FindBoss(Mission->Boss) : nullptr;
+	GS->PushBeat(FString::Printf(TEXT("THE LANTERN OVERFLOWS... %s is climbing out!"), Def ? *Def->Name : TEXT("something")), 3);
+	if (GS->Horde) GS->Horde->ClearSoulPickups();
+}
+
+void ASQGameMode::BeginSoulRift(const FVector& BossAt)
+{
+	ASQGameState* GS = GetGameState<ASQGameState>();
+	const USQData* D = USQData::Get(this);
+	if (!GS || !D) return;
+	Director.End();
+	if (GS->Horde) GS->Horde->ClearAll();
+	if (IsValid(GS->Portal))
+	{
+		GS->Portal->Destroy();
+		GS->Portal = nullptr;
+	}
+	for (TActorIterator<ASQSoulRift> OldIt(GetWorld()); OldIt; ++OldIt) OldIt->Destroy();
+	GS->bFinalSwarm = false;
+	GS->FinalSwarmSeconds = 0.f;
+	GS->bBossReady = false;
+	GS->OverflowTimeLeft = 0.f;
+	const float RiftRadius = FMath::Clamp(D->Tune(TEXT("SoulPortalRadius"), 450.f), 150.f, 1200.f);
+	const float GroundZ = ASQArena::GroundZAt(this, static_cast<float>(BossAt.X), static_cast<float>(BossAt.Y));
+	GS->SoulRiftPos = FVector(BossAt.X, BossAt.Y, GroundZ);
+	GS->bSoulRift = true;
+	GS->SoulRiftTimeLeft = FMath::Clamp(D->Tune(TEXT("SoulPortalWait"), 15.f), 3.f, 120.f);
+	RiftEntered.Reset();
+	RiftBotTimer = 2.f;
+	RiftActor = ASQSoulRift::SpawnRift(GetWorld(), GS->SoulRiftPos, 0, RiftRadius);
+	// The passage waits above the map: whoever walks in drops straight into it
+	PassageActor = ASQSoulRift::SpawnRift(GetWorld(), PassageSpot(), 1, FMath::Clamp(D->Tune(TEXT("SoulPassageFloor"), 1400.f), 600.f, 3000.f));
+	const FSQMissionDef* NextMission = StageChain.IsValidIndex(GS->RunStage + 1) ? USQMissions::FindMission(StageChain[GS->RunStage + 1]) : nullptr;
+	GS->NextStageName = NextMission ? NextMission->Name : FString(TEXT("the next underworld"));
+	int32 Needed = 0;
+	for (TActorIterator<ASQCharacter> It(GetWorld()); It; ++It)
+	{
+		if (It->GetController() && It->GetController()->IsPlayerController()) ++Needed;
+	}
+	GS->SoulRiftNeeded = FMath::Max(1, Needed);
+	GS->SoulRiftIn = 0;
+	GS->PushBeat(FString::Printf(TEXT("Its soul tears free! Walk into the rift to follow it down to %s."), *GS->NextStageName), 4);
+}
+
+void ASQGameMode::EnterRift(ASQCharacter* Reaper)
+{
+	ASQGameState* GS = GetGameState<ASQGameState>();
+	const USQData* D = USQData::Get(this);
+	if (!GS || !D || !Reaper || RiftEntered.Contains(Reaper)) return;
+	RiftEntered.Add(Reaper);
+	if (Reaper->bDowned) Reaper->Revive(1.f);
+	Reaper->ReleaseSkull();
+	// Drop into the passage tunnel, spread round its floor
+	const FVector Base = PassageSpot();
+	const float Angle = 2.f * PI * static_cast<float>(RiftEntered.Num() - 1) / 4.f + 0.4f;
+	const FVector Spot = Base + FVector(FMath::Cos(Angle) * 380.f, FMath::Sin(Angle) * 380.f, 130.f);
+	Reaper->TeleportTo(Spot, FRotator(0.f, FMath::RadiansToDegrees(Angle) + 180.f, 0.f), false, true);
+	if (UCharacterMovementComponent* Move = Reaper->GetCharacterMovement()) Move->StopMovementImmediately();
+	if (USQMovementComponent* SQMove = Reaper->GetSQMovement()) SQMove->ResetFallPeak(); // the drop into the passage is not a fall
+	Reaper->MulticastFX(0, GS->SoulRiftPos + FVector(0.f, 0.f, 10.f), 300.f, FColor(90, 240, 215), 0.4f);
+	if (Reaper->GetController() && Reaper->GetController()->IsPlayerController()) GS->SoulRiftIn = FMath::Min(GS->SoulRiftNeeded, GS->SoulRiftIn + 1);
+}
+
+void ASQGameMode::TickSoulRift(ASQGameState* GS, const USQData* D, float DeltaSeconds)
+{
+	const ASQSoulRift* Rift = RiftActor.Get();
+	const float RiftRadius = Rift ? Rift->Radius : 450.f;
+	GS->SoulRiftTimeLeft = FMath::Max(0.f, GS->SoulRiftTimeLeft - DeltaSeconds);
+	RiftBotTimer -= DeltaSeconds;
+	int32 HumansOut = 0;
+	for (TActorIterator<ASQCharacter> It(GetWorld()); It; ++It)
+	{
+		ASQCharacter* Reaper = *It;
+		if (RiftEntered.Contains(Reaper)) continue;
+		const bool bHuman = Reaper->GetController() && Reaper->GetController()->IsPlayerController();
+		const bool bInside = FVector::Dist2D(Reaper->GetActorLocation(), GS->SoulRiftPos) <= RiftRadius;
+		// Bots have no rift sense: they follow a couple of seconds after it opens
+		if (bInside || (!bHuman && RiftBotTimer <= 0.f)) EnterRift(Reaper);
+		else if (bHuman) ++HumansOut;
+	}
+	// Everyone in (solo: the moment you step in), or time is up (the rest are pulled down with the crew)
+	if (HumansOut == 0 || GS->SoulRiftTimeLeft <= 0.f) BeginPassage();
+}
+
+void ASQGameMode::BeginPassage()
+{
+	ASQGameState* GS = GetGameState<ASQGameState>();
+	const USQData* D = USQData::Get(this);
+	if (!GS || !D || GS->bSoulPassage) return;
+	// Pull in anyone still outside
+	for (TActorIterator<ASQCharacter> It(GetWorld()); It; ++It) EnterRift(*It);
+	GS->bSoulRift = false;
+	if (ASQSoulRift* Rift = RiftActor.Get()) Rift->Destroy();
+	RiftActor = nullptr;
+	if (!PassageActor.IsValid()) PassageActor = ASQSoulRift::SpawnRift(GetWorld(), PassageSpot(), 1, 1400.f);
+
+	// The next map is built below while the crew falls (the old map's chests, objective parts and events go with it)
+	for (TActorIterator<ASQChest> ChestIt(GetWorld()); ChestIt; ++ChestIt) ChestIt->Destroy();
+	for (TActorIterator<ASQObjective> PartIt(GetWorld()); PartIt; ++PartIt) PartIt->Destroy();
+	GS->ClearEventState();
+	const FSQMissionDef* NextMission = StageChain.IsValidIndex(GS->RunStage + 1) ? USQMissions::FindMission(StageChain[GS->RunStage + 1]) : nullptr;
+	if (NextMission && GS->Arena && D->FindBiome(NextMission->Biome))
+	{
+		GS->Arena->SetBiome(NextMission->Biome, GS->bDailyRun ? DailySeed() + (GS->RunStage + 1) * 7907 : -1);
+	}
+
+	// Healed, an augment each, two floating bone chests per reaper
+	for (TActorIterator<ASQCharacter> It(GetWorld()); It; ++It)
+	{
+		if (It->bDowned) It->Revive(1.f);
+		It->Health = It->Stats.MaxHealth;
+	}
+	USQAugments::GrantAugmentPickAll(GetWorld(), ESQAugmentSource::Objective);
+	const int32 Crew = FMath::Clamp(CountTeam(), 1, 4);
+	const int32 PerReaper = FMath::Clamp(FMath::RoundToInt(D->Tune(TEXT("SoulPassageChests"), 2.f)), 0, 4);
+	const FVector Base = PassageSpot();
+	const int32 NumChests = Crew * PerReaper;
+	for (int32 ChestIdx = 0; ChestIdx < NumChests; ++ChestIdx)
+	{
+		const float Angle = 2.f * PI * static_cast<float>(ChestIdx) / FMath::Max(1, NumChests);
+		const FVector At = Base + FVector(FMath::Cos(Angle) * 820.f, FMath::Sin(Angle) * 820.f, 0.f);
+		if (ASQChest* Chest = ASQChest::SpawnChest(GetWorld(), At, false))
+		{
+			Chest->SetActorLocation(At);
+			Chest->SetActorRotation(FRotator(0.f, FMath::RadiansToDegrees(Angle) + 180.f, 0.f));
+		}
+	}
+	GS->bSoulPassage = true;
+	GS->PassageTimeLeft = FMath::Clamp(D->Tune(TEXT("SoulPassageSeconds"), 24.f), 5.f, 120.f);
+	GS->PushBeat(FString::Printf(TEXT("THE SOUL PASSAGE. Pick your augment, spend gold at the floating chests. Next: %s."), *GS->NextStageName), 4);
+}
+
+void ASQGameMode::TickSoulPassage(ASQGameState* GS, const USQData* D, float DeltaSeconds)
+{
+	// The timer waits while a solo player is picking (world time is frozen during the pick pause)
+	GS->PassageTimeLeft = FMath::Max(0.f, GS->PassageTimeLeft - DeltaSeconds);
+	// Nobody falls off the floor
+	const FVector Base = PassageSpot();
+	for (TActorIterator<ASQCharacter> It(GetWorld()); It; ++It)
+	{
+		ASQCharacter* Reaper = *It;
+		const FVector RL = Reaper->GetActorLocation();
+		if (RL.Z < Base.Z - 400.f || FVector::Dist2D(RL, Base) > 2600.f)
+		{
+			Reaper->TeleportTo(Base + FVector(0.f, 0.f, 130.f), Reaper->GetActorRotation(), false, true);
+			if (UCharacterMovementComponent* Move = Reaper->GetCharacterMovement()) Move->StopMovementImmediately();
+			if (USQMovementComponent* SQMove = Reaper->GetSQMovement()) SQMove->ResetFallPeak();
+		}
+	}
+	if (GS->PassageTimeLeft <= 0.f) StartNextStage();
+}
+
+void ASQGameMode::StartNextStage()
+{
+	ASQGameState* GS = GetGameState<ASQGameState>();
+	const USQData* D = USQData::Get(this);
+	if (!GS || !D) return;
+	GS->bSoulPassage = false;
+	GS->PassageTimeLeft = 0.f;
+	for (TActorIterator<ASQChest> ChestIt(GetWorld()); ChestIt; ++ChestIt) ChestIt->Destroy();
+	if (ASQSoulRift* Passage = PassageActor.Get()) Passage->Destroy();
+	PassageActor = nullptr;
+	RiftEntered.Reset();
+
+	GS->RunStage = FMath::Clamp(GS->RunStage + 1, 0, FMath::Max(0, GS->RunStageCount - 1));
+	if (StageChain.IsValidIndex(GS->RunStage)) GS->MissionId = StageChain[GS->RunStage];
+	const FSQMissionDef* Mission = GS->GetMission();
+	if (Mission && GS->Arena && GS->Arena->BiomeId != Mission->Biome && D->FindBiome(Mission->Biome)) GS->Arena->SetBiome(Mission->Biome, -1);
+	GS->NextStageName.Reset();
+
+	// The stage clock and the stage's state reset; the crew (level, weapons, items, augments, gold) carries over
+	const float BaseSeconds = Mission ? Mission->Duration : 420.f;
+	GS->StageDuration = FMath::Max(30.f, BaseSeconds * GS->NightScale() * GS->ModProduct(&FSQModifierDef::NightMult));
+	GS->StageTime = 0.f;
+	GS->NightIndex = 0;
+	GS->PhaseDuration = GS->StageDuration / 3.f;
+	GS->PhaseTimeLeft = GS->PhaseDuration;
+	GS->bFinalSwarm = false;
+	GS->FinalSwarmSeconds = 0.f;
+	GS->BossNightProgress = 1.f;
+	GS->MinibossName.Reset();
+	GS->MinibossHealthFrac = 0.f;
+	GS->Banked = 0;
+	GS->Quota = 0;
+	GS->Defiance = 0;
+	GS->bFinalCall = false;
+	GS->bBossReady = false;
+	GS->OverflowTimeLeft = 0.f;
+	GS->StoryText.Reset();
+	GS->BossTideStart = GS->BossTideEnd = GS->BossTideRise = 0.f;
+	LastBanked = 0;
+	BossFightStart = 0.f;
+	BeatsFired.Init(false, SQQuests::Timeline().Num());
+	RunSeed = GS->bDailyRun ? (DailySeed() + GS->RunStage * 7907) : (FMath::Rand() | 1);
+	PlanEvents(GS, D, false);
+	GS->AddDifficulty(FMath::Max(0.f, D->Tune(TEXT("StageDifficultyStep"), 0.25f)));
+
+	// Land on the new map's player starts and rise out of the ground
+	PlaceLantern();
+	const FVector LanternAt = GS->Lantern ? GS->Lantern->GetActorLocation() : FVector::ZeroVector;
+	int32 StartIndex = 0;
+	for (TActorIterator<ASQCharacter> It(GetWorld()); It; ++It)
+	{
+		ASQCharacter* C = *It;
+		const FVector StartSpot = GetStartSpot(StartIndex++);
+		const FVector FromLantern = (StartSpot - LanternAt).GetSafeNormal2D();
+		C->TeleportTo(StartSpot, FromLantern.IsNearlyZero() ? FRotator::ZeroRotator : FromLantern.Rotation(), false, true);
+		if (UCharacterMovementComponent* Move = C->GetCharacterMovement()) Move->StopMovementImmediately();
+		if (C->bDowned) C->Revive(1.f);
+		if (USQMovementComponent* SQMove = C->GetSQMovement()) SQMove->ResetFallPeak(); // landing from the passage is not a 300 m fall
+		C->RecomputeStats();
+		C->MulticastRunStart();
+		C->StartRiseLock(ASQRiseFx::PlayRise(C));
+	}
+	GS->Phase = ESQPhase::Night;
+	Director.TrailSeedSalt = GS->RunStage * 6151;
+	Director.Begin(GetWorld(), Mission, GS->bHardMode, GS->StageDuration);
+	PlaceChests(0);
+	for (APlayerState* StagePS : GS->PlayerArray)
+	{
+		if (ASQPlayerState* StageSQ = Cast<ASQPlayerState>(StagePS)) StageSQ->bTrackHitThisNight = false;
+	}
+	const FSQBiomeDef* Biome = D->FindBiome(CurrentBiome());
+	GS->PushAlert(FString::Printf(TEXT("STAGE %d / %d - %s%s. %s"), GS->RunStage + 1, GS->RunStageCount, Mission ? *Mission->Name.ToUpper() : TEXT("THE UNDERWORLD"),
+		GS->bHardMode ? TEXT(" (HARD)") : TEXT(""), (Biome && !Biome->GimmickText.IsEmpty()) ? *Biome->GimmickText : TEXT("Fill the lanterns and the boss will rise.")));
+}
+
+void ASQGameMode::BeginEndless()
+{
+	ASQGameState* GS = GetGameState<ASQGameState>();
+	const USQData* D = USQData::Get(this);
+	if (!GS || !D) return;
+	// Every boss has fallen: the run is won however it ends from here (what was earned is safe at the win share)
+	bLoopVictoryLocked = true;
+	for (APlayerState* LockPS : GS->PlayerArray)
+	{
+		if (ASQPlayerState* LockSQ = Cast<ASQPlayerState>(LockPS)) LockSQ->LoopLockedEarned = LockSQ->RunGoldEarned;
+	}
+	Director.End();
+	if (IsValid(GS->Portal))
+	{
+		GS->Portal->Destroy();
+		GS->Portal = nullptr;
+	}
+	GS->bBossReady = false;
+	GS->OverflowTimeLeft = 0.f;
+	GS->bEndlessHorde = true;
+	GS->EndlessSeconds = 0.f;
+	EndlessKillBase = SumKills(GS);
+	GS->EndlessKills = 0;
+	// The Final Swarm's escalating tiers drive the flood; the last act's horde mix and HP steps hold
+	GS->bFinalSwarm = true;
+	GS->FinalSwarmSeconds = 0.f;
+	GS->NightIndex = 2;
+	GS->StageTime = GS->StageDuration;
+	for (TActorIterator<ASQCharacter> It(GetWorld()); It; ++It)
+	{
+		if (It->bDowned) It->Revive(1.f);
+		It->ReleaseSkull();
+	}
+	EndlessLanternTimer = FMath::Max(10.f, D->Tune(TEXT("EndlessHordeLanternSeconds"), 45.f));
+	EndlessEliteTimer = FMath::Max(5.f, D->Tune(TEXT("EndlessHordeEliteSeconds"), 30.f));
+	EndlessMinibossTimer = FMath::Max(20.f, D->Tune(TEXT("EndlessHordeMinibossSeconds"), 120.f));
+	EndlessLanternIdx = 0;
+	CreditAll(GS, TEXT("RunsCleared"));
+	GS->Phase = ESQPhase::Night;
+	GS->PushBeat(TEXT("EVERY BOSS IS DOWN. THE ENDLESS HORDE RISES! Survive as long as you can - keep banking souls at the lantern."), 3);
+}
+
+void ASQGameMode::TickEndless(ASQGameState* GS, const USQData* D, float DeltaSeconds)
+{
+	GS->EndlessSeconds += DeltaSeconds;
+	GS->FinalSwarmSeconds += DeltaSeconds;
+	GS->PhaseTimeLeft = 0.f;
+	GS->RunKills = SumKills(GS);
+	GS->EndlessKills = FMath::Max(0, GS->RunKills - EndlessKillBase);
+	// The flood keeps climbing on top of the Final Swarm curve
+	GS->AddDifficulty(FMath::Max(0.f, D->Tune(TEXT("EndlessHordeDifficultyPerMinute"), 0.2f)) * DeltaSeconds / 60.f);
+
+	// The lantern keeps moving round the map so banking goes on (the route's sites, then any clear spot)
+	EndlessLanternTimer -= DeltaSeconds;
+	if (EndlessLanternTimer <= 0.f && GS->Lantern)
+	{
+		EndlessLanternTimer = FMath::Max(10.f, D->Tune(TEXT("EndlessHordeLanternSeconds"), 45.f));
+		FVector NextAt = GS->Lantern->GetActorLocation();
+		if (GS->TrailSites.Num() > 1)
+		{
+			EndlessLanternIdx = (EndlessLanternIdx + 1 + FMath::RandRange(0, GS->TrailSites.Num() - 2)) % GS->TrailSites.Num();
+			NextAt = GS->TrailSites[EndlessLanternIdx];
+		}
+		else if (GS->Arena)
+		{
+			const float Half = GS->Arena->GetArenaHalf() * 0.6f;
+			NextAt = GS->Arena->FindLanternSpot(FMath::FRandRange(-Half, Half), FMath::FRandRange(-Half, Half), GS->Lantern->Radius + 150.f);
+		}
+		GS->Lantern->SetActorLocation(NextAt);
+		GS->PushBeat(TEXT("The lantern moves on - follow the beam and keep banking."), 4);
+	}
+
+	// Elites, then minibosses, on their own clocks (more of them the longer it goes)
+	const float Minutes = GS->EndlessSeconds / 60.f;
+	const FSQMissionDef* Mission = GS->GetMission();
+	EndlessEliteTimer -= DeltaSeconds;
+	if (EndlessEliteTimer <= 0.f && GS->Horde)
+	{
+		EndlessEliteTimer = FMath::Max(5.f, D->Tune(TEXT("EndlessHordeEliteSeconds"), 30.f));
+		const FName EliteId(TEXT("Brute"));
+		GS->Horde->SpawnSwarm(EliteId, FMath::Clamp(2 + FMath::FloorToInt(Minutes), 2, 16));
+	}
+	EndlessMinibossTimer -= DeltaSeconds;
+	if (EndlessMinibossTimer <= 0.f && GS->Horde)
+	{
+		EndlessMinibossTimer = FMath::Max(20.f, D->Tune(TEXT("EndlessHordeMinibossSeconds"), 120.f));
+		const FName BigId = (Mission && Mission->Minibosses.Num() > 0) ? Mission->Minibosses.Last().Enemy : FName(TEXT("Brute"));
+		GS->Horde->SpawnSwarm(BigId, FMath::Clamp(1 + FMath::FloorToInt(Minutes / 3.f), 1, 6));
+		GS->PushBeat(FString::Printf(TEXT("%d minutes in the horde. Something bigger joins it."), FMath::FloorToInt(Minutes)), 1);
+	}
+	TickTimeline(GS);
+	CheckWipe();
 }

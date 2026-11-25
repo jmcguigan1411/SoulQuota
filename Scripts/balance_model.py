@@ -3735,6 +3735,37 @@ def report_trail(d):
         print("  %-15s %s" % (m["Id"], "    ".join(cells)))
 
 
+def report_run_chain(d):
+    """Section 27 (Nov 25 2026, Docs/RunStructure.md): the 3-stage run. Each stage is simulated fresh for its lantern trail
+    (when the last lantern fills = the boss rises) and the souls banked; the boss fight reads a sim of the same map run to
+    the cumulative clock (the crew's level, weapons and items carry over between stages, so its power is the run's, not the
+    stage's). Souls per player feed the SKINS prices (Cosmetics.csv)."""
+    print("\n-- 27. RUN CHAIN (3 stages, boss from the last lantern, carried power; normal, no meta, seed 0)")
+    rows = mission_rows(d)[:int(d.t("RunStages", 3))]
+    for players in (1, 2, 4):
+        cum = 0.0
+        souls_total = 0.0
+        cells = []
+        for m in rows:
+            dur = num(m["Duration"])
+            r = sim_run(d, m, False, players, 0, seed=0)
+            done = max([at for k, at, ok in r["trail"]] or [r["t_bell"]])
+            lit = sum(1 for k, at, ok in r["trail"] if ok)
+            m_cum = dict(m)
+            m_cum["Duration"] = str(cum + dur)
+            r2 = sim_run(d, m_cum, False, players, 0, seed=0)
+            solo_q = d.t("SoloQuotaMult", 0.5)
+            crew_q = solo_q + (1 - solo_q) * min(1.0, (players - 1) / 3.0)
+            souls = sum(max(5.0, d.t("LanternQuota", 40) * (1 + d.t("LanternQuotaGrowth", 0.5) * k) * crew_q * (dur / max(1.0, d.t("LanternQuotaRefSeconds", 600))))
+                        for k, at, ok in r["trail"] if ok)
+            souls_total += souls
+            cells.append("%s: boss up %.1f min (%d/%d lit), TTK %.0f s / %.0f" % (m["Id"][:9], done / 60.0, lit, len(r["trail"]), r2["ttk"], r2["target"]))
+            cum += done + r2["ttk"] + 30.0   # + the soul rift / passage
+        print("  P%d  run %.1f min to the endless horde | souls banked %.0f team (%.0f each)" % (players, cum / 60.0, souls_total, souls_total / players))
+        for c in cells:
+            print("       " + c)
+
+
 def report_coop(d):
     print("\n-- 19. Co-op scaling (normal, journey meta): per-person pace = team clear ratio at 60% of the stage vs solo's (1.00 = same pace per person)")
     print("  %-15s %-28s %-28s %-24s" % ("Mission", "Clear per person P2/P3/P4", "Boss TTK/tgt P1/P2/P3/P4", "Objectives time P1/P4"))
@@ -4269,6 +4300,7 @@ def unified_report(d, quick=False):
     report_meta_tiers(d)
     report_curves(d)
     report_trail(d)
+    report_run_chain(d)
     report_coop(d)
     report_augments(d)
     report_components(d)

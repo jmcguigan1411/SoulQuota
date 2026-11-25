@@ -112,6 +112,10 @@ namespace SQQuestData
 					FString HexText = SQQuestCell(CosRow, TEXT("Color"));
 					HexText.RemoveFromStart(TEXT("#"));
 					if (HexText.Len() == 6) Cos.Color = FLinearColor::FromSRGBColor(FColor::FromHex(HexText));
+					Cos.Reaper = FName(*SQQuestCell(CosRow, TEXT("Reaper")));
+					Cos.Price = FMath::Max(0, FCString::Atoi(*SQQuestCell(CosRow, TEXT("Price"))));
+					Cos.Tex = SQQuestCell(CosRow, TEXT("Tex"));
+					Cos.Desc = SQQuestCell(CosRow, TEXT("Desc"));
 					Tables.Cosmetics.Add(Cos);
 				}
 			}
@@ -295,6 +299,10 @@ namespace SQQuestData
 		// Nov 9 missions
 		if (Stat == TEXT("MissionsCleared")) { OutValue = Save->MissionsCleared.Num(); return true; }
 		if (Stat == TEXT("HardCleared")) { OutValue = Save->HardCleared.Num(); return true; }
+		// Nov 25 2026 run structure: skins bought, souls ever banked, full clears (every stage boss)
+		if (Stat == TEXT("SkinsOwned")) { OutValue = Save->SkinsOwned.Num(); return true; }
+		if (Stat == TEXT("SoulsEarned")) { OutValue = Save->SoulsEarnedTotal; return true; }
+		if (Stat == TEXT("FullClears")) { OutValue = Save->RunsFullCleared; return true; }
 		if (Stat == TEXT("MetaRanks"))
 		{
 			int32 Ranks = 0;
@@ -391,6 +399,44 @@ namespace SQQuests
 		Save->CosmeticsEquipped.Add(Kind, Next);
 		const FSQCosmeticDef* NextDef = Next.IsNone() ? nullptr : FindCosmetic(Next);
 		return NextDef ? NextDef->Name.ToUpper() : FString(TEXT("STANDARD"));
+	}
+
+	void SkinsFor(FName Reaper, TArray<const FSQCosmeticDef*>& Out)
+	{
+		Out.Reset();
+		for (const FSQCosmeticDef& Cos : Cosmetics())
+		{
+			if (Cos.Kind == TEXT("Skin") && Cos.Reaper == Reaper) Out.Add(&Cos);
+		}
+	}
+
+	FName EquippedSkin(const USQSaveGame* Save, FName Reaper)
+	{
+		if (!Save) return NAME_None;
+		const FName* Worn = Save->SkinsEquipped.Find(Reaper);
+		if (!Worn || Worn->IsNone() || !Save->SkinsOwned.Contains(*Worn)) return NAME_None;
+		const FSQCosmeticDef* Cos = FindCosmetic(*Worn);
+		return (Cos && Cos->Kind == TEXT("Skin") && Cos->Reaper == Reaper) ? *Worn : NAME_None;
+	}
+
+	FString BuyOrEquipSkin(USQSaveGame* Save, FName SkinId)
+	{
+		const FSQCosmeticDef* Cos = FindCosmetic(SkinId);
+		if (!Save || !Cos || Cos->Kind != TEXT("Skin")) return FString(TEXT("That skin is not on sale."));
+		if (!Save->SkinsOwned.Contains(SkinId))
+		{
+			if (Save->SoulBank < Cos->Price) return FString::Printf(TEXT("Not enough souls: %d more needed."), Cos->Price - Save->SoulBank);
+			Save->SoulBank -= Cos->Price;
+			Save->SkinsOwned.AddUnique(SkinId);
+			Save->SkinsEquipped.Add(Cos->Reaper, SkinId);
+			USQSaveGame::Store(Save);
+			return FString::Printf(TEXT("%s bought and equipped."), *Cos->Name.ToUpper());
+		}
+		const FName* Worn = Save->SkinsEquipped.Find(Cos->Reaper);
+		const bool bWearing = Worn && *Worn == SkinId;
+		Save->SkinsEquipped.Add(Cos->Reaper, bWearing ? NAME_None : SkinId);
+		USQSaveGame::Store(Save);
+		return bWearing ? FString(TEXT("Standard look equipped.")) : FString::Printf(TEXT("%s equipped."), *Cos->Name.ToUpper());
 	}
 
 	bool NearestGoal(const USQSaveGame* Save, const USQData* D, FString& OutName, FString& OutReward, float& OutFrac)

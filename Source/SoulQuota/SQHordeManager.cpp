@@ -611,6 +611,8 @@ void ASQHordeManager::SimSpawning(float DeltaSeconds, const TArray<ASQCharacter*
 	if (GS->Phase != ESQPhase::Night && GS->Phase != ESQPhase::Boss) return;
 	// The Long Haunt: nothing spawns while the host decides between cashing out and another loop
 	if (GS->LoopChoiceTimeLeft > 0.f) return;
+	// Nov 25 2026: nothing spawns between stages (soul rift / passage) or while the last lantern overflows
+	if (GS->IsBetweenStages() || GS->OverflowTimeLeft > 0.f) return;
 
 	// Solo Training Shift (UI agent's tutorial): the horde holds back until the Reap tip is done; a few slow ones wait near the reaper
 	if (GS->Phase == ESQPhase::Night && USQTutorial::ShouldHoldSpawns(this))

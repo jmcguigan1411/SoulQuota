@@ -39,6 +39,24 @@ public:
 	UPROPERTY(Replicated) bool bInPickPause = false;
 	UPROPERTY(Replicated) bool bShopReady = false;
 	UPROPERTY(Replicated) int32 Kills = 0;
+	/** Nov 25 2026: souls this reaper banked this run (all stages + endless): they go into the owner's soul bank */
+	UPROPERTY(Replicated) int32 RunSoulsBanked = 0;
+	/** Nov 25 2026 skins: the equipped skin (Cosmetics.csv Kind Skin id) for ReaperId, sent by the owner; replicated so the
+	 *  whole crew sees it (none = the standard look) */
+	UPROPERTY(ReplicatedUsing = OnRep_SkinId) FName SkinId;
+	UFUNCTION() void OnRep_SkinId();
+	/** Owner -> server: the skins this profile wears (one per reaper); the server wears the one for ReaperId */
+	UFUNCTION(Server, Reliable) void ServerSetSkins(const TArray<FName>& InSkins);
+	/** Owner: send this profile's worn skins (spawn, run start, after the SKINS page changes one) */
+	void SendSkins();
+	/** Server: SkinId = the sent skin made for ReaperId (none = standard); call after the reaper changes */
+	void PickSkinForReaper();
+	/** Server: the owner's worn skins (from ServerSetSkins) */
+	TArray<FName> OwnerSkins;
+	/** Run structure: a stage boss fell; the owner's profile marks that mission cleared (first clear bonus banked once) */
+	UFUNCTION(Client, Reliable) void ClientStageCleared(FName MissionId, bool bHard);
+	/** Run end: souls into the soul bank, endless records (per profile) */
+	UFUNCTION(Client, Reliable) void ClientRunRecords(int32 Souls, int32 StagesCleared, bool bEndless, float EndlessSeconds, int32 EndlessKills, int32 RunKills, FName PlayedReaper);
 
 	// ---------------- Economy pass (Nov 7): gold + chests. Gold is this reaper's in-run purse (resets every run); it buys chests.
 	// Souls stay the team's quota + Death's Office currency. Contract used by the world agent (shrines / pots):

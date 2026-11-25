@@ -11,6 +11,7 @@
 #include "SQData.h"
 #include "SQGameState.h"
 #include "SQArena.h"
+#include "SQFx.h"
 
 ASQLantern::ASQLantern()
 {
@@ -76,7 +77,8 @@ void ASQLantern::BeginPlay()
 	Ring->SetMaterial(0, ASQArena::SurfaceMID(this, FLinearColor(0.75f, 0.52f, 0.16f), 0.6f));
 	if (const USQData* LD = USQData::Get(this))
 	{
-		Light->SetIntensity(LD->Tune(TEXT("LanternLightIntensity"), 30000.f));
+		LanternBaseIntensity = LD->Tune(TEXT("LanternLightIntensity"), 30000.f);
+		Light->SetIntensity(LanternBaseIntensity);
 		// Shadowed point light = 6 shadow views of the whole horde: off unless asked for
 		Light->SetCastShadows(LD->Tune(TEXT("LanternShadows"), 0.f) > 0.5f);
 	}
@@ -208,6 +210,24 @@ void ASQLantern::RefreshTrailLook(const ASQGameState* GS)
 	const int32 Serial = Arena ? Arena->GetBuildSerial() : -1;
 	const FVector Here = GetActorLocation();
 	if (Sites == LookSites && Stage == LookStage && Missed == LookMissed && Serial == LookSerial && Here.Equals(LookAt, 1.0)) return;
+	// Nov 25 2026 (Jack: the lantern should move once it has its souls): the flame leaves the banked lantern and flies
+	// to the next site. A client can see the new stage before the new position, so wait until the actor has moved.
+	if (LookStage >= 0 && Stage == LookStage + 1 && Sites == LookSites && Stage < Sites)
+	{
+		bFlightPending = true;
+		FlightFrom = LookAt;
+	}
+	// The endless horde moves the lantern on a timer: the flame flies there too
+	if (GS && GS->bEndlessHorde && !bFlightPending && LookAt.X < 1.0e30 && FVector::DistSquared2D(Here, LookAt) > FMath::Square(500.0))
+	{
+		bFlightPending = true;
+		FlightFrom = LookAt;
+	}
+	if (bFlightPending && FVector::DistSquared2D(Here, FlightFrom) > FMath::Square(500.0))
+	{
+		bFlightPending = false;
+		if (GetNetMode() != NM_DedicatedServer) LaunchFlight(FlightFrom, Here);
+	}
 	// Nov 19 2026: the moment the trail moves on, the lantern just banked gutters out and the new one catches (FxRecipes.csv LanternSpent / LanternLit)
 	if (LookStage >= 0 && Stage == LookStage + 1 && Sites == LookSites && GetNetMode() != NM_DedicatedServer)
 	{
@@ -222,8 +242,8 @@ void ASQLantern::RefreshTrailLook(const ASQGameState* GS)
 	if (DormantPosts) DormantPosts->ClearInstances();
 	if (SpentPosts) SpentPosts->ClearInstances();
 	if (Footlights) Footlights->ClearInstances();
-	// The beam marks a lantern that still wants souls
-	if (Beam) Beam->SetVisibility(Sites > 0 && Stage < Sites);
+	// The beam marks a lantern that still wants souls (and the endless horde's moving lantern)
+	if (Beam) Beam->SetVisibility((Sites > 0 && Stage < Sites) || (GS && GS->bEndlessHorde));
 	if (Sites <= 0 || !GS) return;
 
 	const bool bArtPost = SQArt::Prop(TEXT("lantern_standing")) != nullptr;
@@ -326,7 +346,70 @@ void ASQLantern::Tick(float DeltaSeconds)
 	}
 	const float Flicker = 1.f + 0.08f * FMath::Sin(Time * 13.f) + 0.05f * FMath::Sin(Time * 29.f);
 	Flame->SetRelativeScale3D(FVector(FlameScale * Flicker));
-	Light->SetLightColor(bFinalCall && FMath::Fmod(Time, 0.5f) < 0.25f ? FLinearColor(1.f, 0.2f, 0.15f) : FLinearColor(1.f, 0.75f, 0.35f));
+	// Nov 25 2026: the last lantern overflowing (the boss is climbing out) throbs blood red and spits soul fire
+	const bool bOverflow = GS && GS->OverflowTimeLeft > 0.f;
+	if (bOverflow)
+	{
+		Light->SetLightColor(FMath::Fmod(Time, 0.3f) < 0.15f ? FLinearColor(1.f, 0.08f, 0.05f) : FLinearColor(1.f, 0.35f, 0.2f));
+		Light->SetIntensity(90000.f);
+		OverflowFx -= DeltaSeconds;
+		if (OverflowFx <= 0.f && GetNetMode() != NM_DedicatedServer)
+		{
+			OverflowFx = 0.15f;
+			const FVector Head = GetActorLocation() + FVector(0.f, 0.f, 260.f);
+			SQFx::Burst(GetWorld(), Head, FLinearColor(1.f, 0.2f, 0.12f), 6, 700.f, 0.8f, 18.f, -400.f);
+			SQFx::Streak(GetWorld(), GetActorLocation(), GetActorLocation() + FVector(0.f, 0.f, 2400.f), FLinearColor(1.f, 0.15f, 0.1f), 90.f, 0.18f);
+		}
+		bWasOverflowing = true;
+	}
+	else
+	{
+		if (bWasOverflowing) { Light->SetIntensity(LanternBaseIntensity); bWasOverflowing = false; }
+		Light->SetLightColor(bFinalCall && FMath::Fmod(Time, 0.5f) < 0.25f ? FLinearColor(1.f, 0.2f, 0.15f) : FLinearColor(1.f, 0.75f, 0.35f));
+	}
+}
+
+void ASQLantern::LaunchFlight(const FVector& From, const FVector& To)
+{
+	UWorld* World = GetWorld();
+	if (!World) return;
+	// A ballistic arc from the old lantern head to the new one: time grows with distance, apex well above the rooftops
+	const FVector Start = From + FVector(0.f, 0.f, 260.f);
+	const FVector End = To + FVector(0.f, 0.f, 260.f);
+	const FVector Delta = End - Start;
+	const float Flight = FMath::Clamp(static_cast<float>(Delta.Size2D()) / 3200.f, 1.6f, 3.4f);
+	const float Gravity = -1400.f;
+	FVector Vel = Delta / Flight;
+	Vel.Z = (static_cast<float>(Delta.Z) - 0.5f * Gravity * Flight * Flight) / Flight;
+	const FLinearColor Hot(1.f, 0.78f, 0.38f);
+	const FLinearColor Soul(0.36f, 0.95f, 0.84f);
+	// Head + a comet tail of smaller flames on the same path (staggered starts), then a burst where it lands
+	for (int32 Piece = 0; Piece < 9; ++Piece)
+	{
+		FSQFxParticle P;
+		P.Pos = Start;
+		P.Vel = Vel;
+		P.Gravity = Gravity;
+		P.Shape = ESQFxShape::Flame;
+		P.Color = Piece == 0 ? Hot : FMath::Lerp(Hot, Soul, static_cast<float>(Piece) / 8.f);
+		P.Delay = 0.05f * static_cast<float>(Piece);
+		P.Life = Flight;
+		const float Size = FMath::Lerp(150.f, 40.f, static_cast<float>(Piece) / 8.f);
+		P.SizeStart = P.SizeEnd = FVector(Size);
+		P.bShrinkOut = Piece > 0;
+		P.Bright = Piece == 0 ? 3.f : 2.f;
+		if (Piece == 0)
+		{
+			P.TrailEvery = 0.035f;
+			P.TrailSize = 34.f;
+			P.TrailColor = Soul;
+			P.DeathFx = 2;
+			P.DeathCount = 14;
+			P.DeathSize = 18.f;
+			P.DeathColor = Hot;
+		}
+		SQFx::Emit(World, P);
+	}
 }
 
 void ASQLantern::ServerValidateSpot()

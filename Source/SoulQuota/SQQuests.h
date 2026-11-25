@@ -22,6 +22,15 @@ struct FSQCosmeticDef
 	FName Kind;
 	FString Name;
 	FLinearColor Color = FLinearColor::White;
+	// ---- Nov 25 2026 skins (Kind Skin): bought with banked souls on the SKINS page, worn by one reaper, seen by the crew
+	/** Reapers.csv id this skin is for */
+	FName Reaper;
+	/** Souls it costs */
+	int32 Price = 0;
+	/** Texture key: the game loads /Game/Art/Textures/T_<Model>_<Tex> (ArtSource/Characters/skins/<Model>_<Tex>.png); Color tints when missing */
+	FString Tex;
+	/** One line for the shop card */
+	FString Desc;
 };
 
 struct FSQQuestReward
@@ -137,6 +146,12 @@ namespace SQQuests
 	SOULQUOTA_API FLinearColor EquippedColor(const USQSaveGame* Save, FName Kind, const FLinearColor& Default);
 	/** Equips the next owned cosmetic of Kind (wraps round to "standard"). Returns its display name. */
 	SOULQUOTA_API FString CycleCosmetic(USQSaveGame* Save, FName Kind);
+	/** Nov 25 2026 skins: every Kind Skin row for this reaper, in file order (cheapest first in the data) */
+	SOULQUOTA_API void SkinsFor(FName Reaper, TArray<const FSQCosmeticDef*>& Out);
+	/** The skin this profile wears on Reaper (owned, for that reaper), none = standard */
+	SOULQUOTA_API FName EquippedSkin(const USQSaveGame* Save, FName Reaper);
+	/** Buys (souls from the soul bank) or, if owned, equips/unequips. Returns a short result line for the UI. Saves the profile. */
+	SOULQUOTA_API FString BuyOrEquipSkin(USQSaveGame* Save, FName SkinId);
 	/** The unfinished quest closest to done (highest share of its target). False when everything is done. */
 	SOULQUOTA_API bool NearestGoal(const USQSaveGame* Save, const USQData* D, FString& OutName, FString& OutReward, float& OutFrac);
 	/** Re-reads Quests.csv / Modifiers.csv / Timeline.csv */

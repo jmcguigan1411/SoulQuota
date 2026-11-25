@@ -273,7 +273,12 @@ enum class ESQEnemyDeath : uint8 { Tumble, Bones, Launch, Pop, Fade };
 enum class ESQEnemyFly : uint8 { None, Swoop, Phase };
 
 /** Boss abilities (Bosses.csv Abilities / Phase2 / Phase3 columns: "Name:Weight|Name:Weight") */
-enum class ESQBossAbility : uint8 { None, Slam, Shockwave, Spiral, Fan, Charge, Summon, Pools, Vortex, Mark, Pylons, Tether, Ring };
+enum class ESQBossAbility : uint8 { None, Slam, Shockwave, Spiral, Fan, Charge, Summon, Pools, Vortex, Mark, Pylons, Tether, Ring,
+	// Nov 25 2026 run structure: map bosses built on their map's mechanic (Docs/RunStructure.md)
+	TombWall, Burrow, Raise, Cracks,              // The Gravekeeper (Graveyard terraces)
+	Flood, Tentacles, GhostShip, KingTide,        // The Drowned King (Harbour tide)
+	TimeZones, ClockSweep, Rewind,                // The Merchant of Hours (Clocktower)
+	Count };
 struct FSQBossAbilityPick
 {
 	ESQBossAbility Ability = ESQBossAbility::None;

@@ -200,6 +200,8 @@ private:
 	// ---------------- sections
 	/** Mission / stage timer pill (old night clock as a fallback), the boss bar under it; returns the bottom */
 	float DrawTopCentre(const ASQGameState* GS, const USQData* D);
+	/** Nov 25 2026 run structure: overflow banner, soul rift marker + prompt, passage card, endless kill counter (Docs/RunStructure.md) */
+	float DrawRunOverlay(const ASQGameState* GS, const ASQCharacter* C, float Y);
 	/** Boss name + health + phase pips; returns the bottom */
 	float DrawBossBar(const ASQGameState* GS, const USQData* D, float Y);
 	float DrawToast(const FString& Msg, float Y, const FLinearColor& Accent, float Age, float Life);

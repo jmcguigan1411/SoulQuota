@@ -87,6 +87,9 @@ void USQSaveGame::SanitiseSettings()
 	StickSensitivity = FMath::IsFinite(StickSensitivity) ? FMath::Clamp(StickSensitivity, 0.f, 1.f) : 0.5f;
 	StickDeadZone = FMath::IsFinite(StickDeadZone) ? FMath::Clamp(StickDeadZone, SQSettings::DeadMin, SQSettings::DeadMax) : 0.2f;
 	HudScale = FMath::IsFinite(HudScale) ? FMath::Clamp(HudScale, SQSettings::HudScaleMin, SQSettings::HudScaleMax) : 1.f;
+	ColourBlindMode = FMath::Min<uint8>(ColourBlindMode, 3);
+	ColourBlindStrength = FMath::IsFinite(ColourBlindStrength) ? FMath::Clamp(ColourBlindStrength, 0.f, 1.f) : 1.f;
+	MinimapScale = FMath::IsFinite(MinimapScale) ? FMath::Clamp(MinimapScale, SQSettings::MinimapScaleMin, SQSettings::MinimapScaleMax) : 1.f;
 	ResScale = FMath::IsFinite(ResScale) ? FMath::Clamp(ResScale, SQSettings::ResScaleMin, 1.f) : 1.f;
 	GfxPreset = FMath::Min<uint8>(GfxPreset, 4);
 	GfxEffects = FMath::Min<uint8>(GfxEffects, 3);
@@ -134,6 +137,9 @@ void SQSettings::ResetDefaults(USQSaveGame* Save)
 	Save->HudScale = 1.f;
 	Save->bShapeCues = false;
 	Save->bReduceFlash = false;
+	Save->ColourBlindMode = 0;
+	Save->ColourBlindStrength = 1.f;
+	Save->MinimapScale = 1.f;
 	Save->bGfxGovernor = true;
 	Save->bShowFps = false;
 	Save->FrameCap = 0;
@@ -206,6 +212,7 @@ namespace
 		WindowMode, Resolution, ResScale, FrameCap, VSync, ShowFps,
 		KeyHints, DeadZone,
 		HudScale, ShapeCues, ReduceFlash, HoldConfirm, SlideMode, Vibration,
+		ColourBlind, ColourBlindStrength, MinimapSize,
 		Master, Music
 	};
 	enum class ESQSetKind : uint8 { Segment, Slider, Toggle, Button, Cycle };
@@ -225,12 +232,13 @@ namespace
 		{ ESQSetRow::Smooth, ESQSetKind::Slider, TEXT("Follow smoothing") },
 		{ ESQSetRow::InvertY, ESQSetKind::Toggle, TEXT("Invert look up / down") },
 		{ ESQSetRow::CamAssist, ESQSetKind::Toggle, TEXT("Controller camera assist") },
-		{ ESQSetRow::Shake, ESQSetKind::Slider, TEXT("Screen shake") },
+		{ ESQSetRow::Shake, ESQSetKind::Segment, TEXT("Screen shake") },
 	};
 	const FSQSetRowDef SQSetGameplay[] = {
 		{ ESQSetRow::DmgNumbers, ESQSetKind::Toggle, TEXT("Damage numbers") },
 		{ ESQSetRow::Tips, ESQSetKind::Toggle, TEXT("Tutorial tips") },
 		{ ESQSetRow::AutoPick, ESQSetKind::Toggle, TEXT("Auto-pick level-ups") },
+		{ ESQSetRow::MinimapSize, ESQSetKind::Slider, TEXT("Minimap size (M = full map)") },
 		{ ESQSetRow::Replay, ESQSetKind::Button, TEXT("How-to-play prompts") },
 	};
 	const FSQSetRowDef SQSetGraphics[] = {
@@ -257,6 +265,8 @@ namespace
 	};
 	const FSQSetRowDef SQSetAccess[] = {
 		{ ESQSetRow::HudScale, ESQSetKind::Slider, TEXT("HUD size") },
+		{ ESQSetRow::ColourBlind, ESQSetKind::Segment, TEXT("Colour-blind mode") },
+		{ ESQSetRow::ColourBlindStrength, ESQSetKind::Slider, TEXT("Colour-blind filter strength") },
 		{ ESQSetRow::ShapeCues, ESQSetKind::Toggle, TEXT("Shapes as well as colours") },
 		{ ESQSetRow::ReduceFlash, ESQSetKind::Toggle, TEXT("Reduce flashes") },
 		{ ESQSetRow::HoldConfirm, ESQSetKind::Toggle, TEXT("Hold to confirm big choices") },
@@ -301,6 +311,8 @@ namespace
 		case ESQSetRow::ResScale: return SQSetRange01(Save->ResScale, SQSettings::ResScaleMin, 1.f);
 		case ESQSetRow::DeadZone: return SQSetRange01(Save->StickDeadZone, SQSettings::DeadMin, SQSettings::DeadMax);
 		case ESQSetRow::HudScale: return SQSetRange01(Save->HudScale, SQSettings::HudScaleMin, SQSettings::HudScaleMax);
+		case ESQSetRow::MinimapSize: return SQSetRange01(Save->MinimapScale, SQSettings::MinimapScaleMin, SQSettings::MinimapScaleMax);
+		case ESQSetRow::ColourBlindStrength: return Save->ColourBlindStrength;
 		case ESQSetRow::Master: return Save->MasterVolume;
 		case ESQSetRow::Music: return Save->MusicVolume;
 		default: return 0.f;
@@ -320,6 +332,8 @@ namespace
 		case ESQSetRow::ResScale: Save->ResScale = FMath::Lerp(SQSettings::ResScaleMin, 1.f, V); break;
 		case ESQSetRow::DeadZone: Save->StickDeadZone = FMath::Lerp(SQSettings::DeadMin, SQSettings::DeadMax, V); break;
 		case ESQSetRow::HudScale: Save->HudScale = FMath::Lerp(SQSettings::HudScaleMin, SQSettings::HudScaleMax, V); break;
+		case ESQSetRow::MinimapSize: Save->MinimapScale = FMath::Lerp(SQSettings::MinimapScaleMin, SQSettings::MinimapScaleMax, V); break;
+		case ESQSetRow::ColourBlindStrength: Save->ColourBlindStrength = V; break;
 		case ESQSetRow::Master: Save->MasterVolume = V; break;
 		case ESQSetRow::Music: Save->MusicVolume = V; break;
 		default: break;
@@ -332,6 +346,7 @@ namespace
 		{
 		case ESQSetRow::ResScale: return FString::Printf(TEXT("%d%%"), FMath::RoundToInt(Save->ResScale * 100.f));
 		case ESQSetRow::HudScale: return FString::Printf(TEXT("%d%%"), FMath::RoundToInt(Save->HudScale * 100.f));
+		case ESQSetRow::MinimapSize: return FString::Printf(TEXT("%d%%"), FMath::RoundToInt(Save->MinimapScale * 100.f));
 		case ESQSetRow::DeadZone: return FString::Printf(TEXT("%d%%"), FMath::RoundToInt(Save->StickDeadZone * 100.f));
 		default: return FString::Printf(TEXT("%d%%"), FMath::RoundToInt(SQSetGet01(Save, Id) * 100.f));
 		}
@@ -382,6 +397,14 @@ namespace
 		{
 		case ESQSetRow::CamMode: Opts[0] = TEXT("AUTO"); Opts[1] = TEXT("MANUAL"); OutSel = Save->AimMode == 1 ? 1 : 0; return 2;
 		case ESQSetRow::SlideMode: Opts[0] = TEXT("HOLD"); Opts[1] = TEXT("TOGGLE"); OutSel = Save->bSlideToggle ? 1 : 0; return 2;
+		case ESQSetRow::Shake:
+			Opts[0] = TEXT("OFF"); Opts[1] = TEXT("LOW"); Opts[2] = TEXT("NORMAL"); Opts[3] = TEXT("STRONG");
+			OutSel = Save->ScreenShake <= 0.01f ? 0 : (Save->ScreenShake < 0.375f ? 1 : (Save->ScreenShake < 0.75f ? 2 : 3));
+			return 4;
+		case ESQSetRow::ColourBlind:
+			Opts[0] = TEXT("OFF"); Opts[1] = TEXT("PROTAN"); Opts[2] = TEXT("DEUTAN"); Opts[3] = TEXT("TRITAN");
+			OutSel = FMath::Min<int32>(Save->ColourBlindMode, 3);
+			return 4;
 		case ESQSetRow::WindowMode: Opts[0] = TEXT("WINDOWED"); Opts[1] = TEXT("BORDERLESS"); Opts[2] = TEXT("FULLSCREEN"); OutSel = SQPerf::WindowMode(); return 3;
 		case ESQSetRow::GfxPreset: UseLevels(); OutSel = Save->GfxPreset < SQPerf::PresetCustom ? Save->GfxPreset : -1; return 4;
 		case ESQSetRow::GfxEffects: UseLevels(); OutSel = FMath::Min<int32>(Save->GfxEffects, 3); return 4;
@@ -399,6 +422,8 @@ namespace
 		{
 		case ESQSetRow::CamMode: Save->AimMode = Value > 0 ? 1 : 0; break;
 		case ESQSetRow::SlideMode: Save->bSlideToggle = Value > 0; break;
+		case ESQSetRow::Shake: { static const float ShakeLevels[4] = { 0.f, 0.25f, 0.5f, 1.f }; Save->ScreenShake = ShakeLevels[Value]; break; }
+		case ESQSetRow::ColourBlind: Save->ColourBlindMode = Value; break;
 		case ESQSetRow::WindowMode: SQPerf::SetWindowMode(World, Value); break;
 		case ESQSetRow::GfxPreset: SQPerf::SetPreset(Save, Value); break;
 		case ESQSetRow::GfxEffects: Save->GfxEffects = Value; break;

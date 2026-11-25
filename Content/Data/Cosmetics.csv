@@ -1,16 +1,87 @@
-Id,Kind,Name,Color
+Id,Kind,Name,Color,Reaper,Price,Tex,Desc
 # Content pass (Nov 24 2026, Docs/Content.md). Cosmetics are earned from Quests.csv rewards (Cosmetic:<Id>), never bought.
 # Kind Trail = the colour of YOUR lantern trail marker and guide line on the minimap (local to your screen). Equip on the UNLOCKS page (T / pad Y).
 # Color = sRGB hex. Standard look (nothing equipped) is amber.
-TrailMoss,Trail,Grave Moss,#7BD66A
-TrailWisp,Trail,Wisp Blue,#6FC8FF
-TrailBone,Trail,Bone White,#F2ECD8
-TrailWitchfire,Trail,Witchfire,#B77BFF
-TrailPumpkin,Trail,Pumpkin Glow,#FF8A2A
-TrailTide,Trail,Tide Teal,#35E0C2
-TrailBrass,Trail,Clock Brass,#D8B45A
-TrailEmber,Trail,Ember,#FF5A3C
-TrailFrost,Trail,Frostbite,#BFE9FF
-TrailRose,Trail,Rose Quartz,#FF9CC8
-TrailMoon,Trail,Blood Moon,#E0283C
-TrailGilt,Trail,Gilded,#FFE066
+TrailMoss,Trail,Grave Moss,#7BD66A,,,,
+TrailWisp,Trail,Wisp Blue,#6FC8FF,,,,
+TrailBone,Trail,Bone White,#F2ECD8,,,,
+TrailWitchfire,Trail,Witchfire,#B77BFF,,,,
+TrailPumpkin,Trail,Pumpkin Glow,#FF8A2A,,,,
+TrailTide,Trail,Tide Teal,#35E0C2,,,,
+TrailBrass,Trail,Clock Brass,#D8B45A,,,,
+TrailEmber,Trail,Ember,#FF5A3C,,,,
+TrailFrost,Trail,Frostbite,#BFE9FF,,,,
+TrailRose,Trail,Rose Quartz,#FF9CC8,,,,
+TrailMoon,Trail,Blood Moon,#E0283C,,,,
+TrailGilt,Trail,Gilded,#FFE066,,,,
+# Nov 25 2026 skins (Scripts/make_skins.py writes these rows; edit THEMES / PRICES there, never by hand). Kind Skin = bought with
+# banked souls on the SKINS page (main menu); Reaper = who wears it; Tex = texture suffix (T_<Model>_<Tex>); Color = card swatch / fallback tint.
+# Nov 25 2026 skins (Scripts/make_skins.py writes these rows; edit THEMES / PRICES there, never by hand). Kind Skin = bought with
+# banked souls on the SKINS page (main menu); Reaper = who wears it; Tex = texture suffix (T_<Model>_<Tex>); Color = card swatch / fallback tint.
+# Nov 25 2026 skins (Scripts/make_skins.py writes these rows; edit THEMES / PRICES there, never by hand). Kind Skin = bought with
+# banked souls on the SKINS page (main menu); Reaper = who wears it; Tex = texture suffix (T_<Model>_<Tex>); Color = card swatch / fallback tint.
+# Nov 25 2026 skins (Scripts/make_skins.py writes these rows; edit THEMES / PRICES there, never by hand). Kind Skin = bought with
+# banked souls on the SKINS page (main menu); Reaper = who wears it; Tex = texture suffix (T_<Model>_<Tex>); Color = card swatch / fallback tint.
+Skin_Grim_BoneMoon,Skin,Bone Moon,#C9D3E6,Grim,2500,BoneMoon,Moonlit bone and cold blue shadow.
+Skin_Grim_Verdigris,Skin,Verdigris,#5FAE8C,Grim,6000,Verdigris,Old copper gone green in the rain.
+Skin_Grim_Spectral,Skin,Spectral,#B9A6F5,Grim,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Mort_Abyssal,Skin,Abyssal,#1C8C94,Mort,2500,Abyssal,From the drowned deep: black water and lantern-fish light.
+Skin_Mort_Verdigris,Skin,Verdigris,#5FAE8C,Mort,6000,Verdigris,Old copper gone green in the rain.
+Skin_Mort_Spectral,Skin,Spectral,#B9A6F5,Mort,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Widow_BoneMoon,Skin,Bone Moon,#C9D3E6,Widow,2500,BoneMoon,Moonlit bone and cold blue shadow.
+Skin_Widow_Abyssal,Skin,Abyssal,#1C8C94,Widow,6000,Abyssal,From the drowned deep: black water and lantern-fish light.
+Skin_Widow_Spectral,Skin,Spectral,#B9A6F5,Widow,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Bonesmith_GraveRose,Skin,Grave Rose,#C2588A,Bonesmith,2500,GraveRose,Funeral flowers left out too long.
+Skin_Bonesmith_Abyssal,Skin,Abyssal,#1C8C94,Bonesmith,6000,Abyssal,From the drowned deep: black water and lantern-fish light.
+Skin_Bonesmith_Spectral,Skin,Spectral,#B9A6F5,Bonesmith,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Keeper_BoneMoon,Skin,Bone Moon,#C9D3E6,Keeper,2500,BoneMoon,Moonlit bone and cold blue shadow.
+Skin_Keeper_Verdigris,Skin,Verdigris,#5FAE8C,Keeper,6000,Verdigris,Old copper gone green in the rain.
+Skin_Keeper_Spectral,Skin,Spectral,#B9A6F5,Keeper,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Monk_Abyssal,Skin,Abyssal,#1C8C94,Monk,2500,Abyssal,From the drowned deep: black water and lantern-fish light.
+Skin_Monk_GraveRose,Skin,Grave Rose,#C2588A,Monk,6000,GraveRose,Funeral flowers left out too long.
+Skin_Monk_Spectral,Skin,Spectral,#B9A6F5,Monk,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Intern_Verdigris,Skin,Verdigris,#5FAE8C,Intern,2500,Verdigris,Old copper gone green in the rain.
+Skin_Intern_BoneMoon,Skin,Bone Moon,#C9D3E6,Intern,6000,BoneMoon,Moonlit bone and cold blue shadow.
+Skin_Intern_Spectral,Skin,Spectral,#B9A6F5,Intern,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Femur_GraveRose,Skin,Grave Rose,#C2588A,Femur,2500,GraveRose,Funeral flowers left out too long.
+Skin_Femur_Abyssal,Skin,Abyssal,#1C8C94,Femur,6000,Abyssal,From the drowned deep: black water and lantern-fish light.
+Skin_Femur_Spectral,Skin,Spectral,#B9A6F5,Femur,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Digby_BoneMoon,Skin,Bone Moon,#C9D3E6,Digby,2500,BoneMoon,Moonlit bone and cold blue shadow.
+Skin_Digby_Verdigris,Skin,Verdigris,#5FAE8C,Digby,6000,Verdigris,Old copper gone green in the rain.
+Skin_Digby_Spectral,Skin,Spectral,#B9A6F5,Digby,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Collector_BoneMoon,Skin,Bone Moon,#C9D3E6,Collector,2500,BoneMoon,Moonlit bone and cold blue shadow.
+Skin_Collector_GraveRose,Skin,Grave Rose,#C2588A,Collector,6000,GraveRose,Funeral flowers left out too long.
+Skin_Collector_Spectral,Skin,Spectral,#B9A6F5,Collector,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Beak_Verdigris,Skin,Verdigris,#5FAE8C,Beak,2500,Verdigris,Old copper gone green in the rain.
+Skin_Beak_BoneMoon,Skin,Bone Moon,#C9D3E6,Beak,6000,BoneMoon,Moonlit bone and cold blue shadow.
+Skin_Beak_Spectral,Skin,Spectral,#B9A6F5,Beak,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Tallow_GraveRose,Skin,Grave Rose,#C2588A,Tallow,2500,GraveRose,Funeral flowers left out too long.
+Skin_Tallow_Abyssal,Skin,Abyssal,#1C8C94,Tallow,6000,Abyssal,From the drowned deep: black water and lantern-fish light.
+Skin_Tallow_Spectral,Skin,Spectral,#B9A6F5,Tallow,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Lookout_BoneMoon,Skin,Bone Moon,#C9D3E6,Lookout,2500,BoneMoon,Moonlit bone and cold blue shadow.
+Skin_Lookout_Verdigris,Skin,Verdigris,#5FAE8C,Lookout,6000,Verdigris,Old copper gone green in the rain.
+Skin_Lookout_Spectral,Skin,Spectral,#B9A6F5,Lookout,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Vexa_BoneMoon,Skin,Bone Moon,#C9D3E6,Vexa,2500,BoneMoon,Moonlit bone and cold blue shadow.
+Skin_Vexa_GraveRose,Skin,Grave Rose,#C2588A,Vexa,6000,GraveRose,Funeral flowers left out too long.
+Skin_Vexa_Spectral,Skin,Spectral,#B9A6F5,Vexa,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Actuary_Verdigris,Skin,Verdigris,#5FAE8C,Actuary,2500,Verdigris,Old copper gone green in the rain.
+Skin_Actuary_BoneMoon,Skin,Bone Moon,#C9D3E6,Actuary,6000,BoneMoon,Moonlit bone and cold blue shadow.
+Skin_Actuary_Spectral,Skin,Spectral,#B9A6F5,Actuary,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Sweep_GraveRose,Skin,Grave Rose,#C2588A,Sweep,2500,GraveRose,Funeral flowers left out too long.
+Skin_Sweep_Abyssal,Skin,Abyssal,#1C8C94,Sweep,6000,Abyssal,From the drowned deep: black water and lantern-fish light.
+Skin_Sweep_Spectral,Skin,Spectral,#B9A6F5,Sweep,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Solace_BoneMoon,Skin,Bone Moon,#C9D3E6,Solace,2500,BoneMoon,Moonlit bone and cold blue shadow.
+Skin_Solace_Verdigris,Skin,Verdigris,#5FAE8C,Solace,6000,Verdigris,Old copper gone green in the rain.
+Skin_Solace_Spectral,Skin,Spectral,#B9A6F5,Solace,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Pallbearers_Abyssal,Skin,Abyssal,#1C8C94,Pallbearers,2500,Abyssal,From the drowned deep: black water and lantern-fish light.
+Skin_Pallbearers_GraveRose,Skin,Grave Rose,#C2588A,Pallbearers,6000,GraveRose,Funeral flowers left out too long.
+Skin_Pallbearers_Spectral,Skin,Spectral,#B9A6F5,Pallbearers,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Ectoplasm_BoneMoon,Skin,Bone Moon,#C9D3E6,Ectoplasm,2500,BoneMoon,Moonlit bone and cold blue shadow.
+Skin_Ectoplasm_Abyssal,Skin,Abyssal,#1C8C94,Ectoplasm,6000,Abyssal,From the drowned deep: black water and lantern-fish light.
+Skin_Ectoplasm_Spectral,Skin,Spectral,#B9A6F5,Ectoplasm,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Neckless_GraveRose,Skin,Grave Rose,#C2588A,Neckless,2500,GraveRose,Funeral flowers left out too long.
+Skin_Neckless_Abyssal,Skin,Abyssal,#1C8C94,Neckless,6000,Abyssal,From the drowned deep: black water and lantern-fish light.
+Skin_Neckless_Spectral,Skin,Spectral,#B9A6F5,Neckless,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."
+Skin_Tickwell_Abyssal,Skin,Abyssal,#1C8C94,Tickwell,2500,Abyssal,From the drowned deep: black water and lantern-fish light.
+Skin_Tickwell_BoneMoon,Skin,Bone Moon,#C9D3E6,Tickwell,6000,BoneMoon,Moonlit bone and cold blue shadow.
+Skin_Tickwell_Spectral,Skin,Spectral,#B9A6F5,Tickwell,12000,Spectral,"Barely there: a ghost of a ghost, glowing from within."

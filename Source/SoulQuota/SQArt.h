@@ -29,6 +29,8 @@ namespace SQArt
 	SOULQUOTA_API UStaticMesh* Weapon(FName Name);
 	/** Palette texture for a character model: T_<Model> (next to its mesh or in Art/Textures), else the shared KayKit T_Skeleton. */
 	SOULQUOTA_API UTexture* CharacterTexture(FName Model = NAME_None);
+	/** Nov 25 2026 skins: T_<Model>_<Tex> (ArtSource/Characters/skins, imported by import_art.py); null when not imported */
+	SOULQUOTA_API UTexture* SkinTexture(FName Model, const FString& Tex);
 	/** The model actually available: a missing custom model falls back to a KayKit skeleton on the same rig. */
 	SOULQUOTA_API FName ResolveModel(FName Model);
 	SOULQUOTA_API UTexture* PropTexture();

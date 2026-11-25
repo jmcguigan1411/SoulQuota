@@ -71,6 +71,30 @@ public:
 	/** Stunned after its shield breaks: takes extra damage */
 	UPROPERTY(Replicated) bool bStaggered = false;
 
+	// ---- Nov 25 2026 run structure: map boss mechanics (replicated so every machine draws them / predicts movement)
+	/** Gravekeeper Burrow: under the ground (hidden, invulnerable) */
+	UPROPERTY(Replicated) bool bBurrowed = false;
+	/** Merchant Time Zones: floor circles (kind 0 haste, 1 slow, 2 freeze) until ZonesEndTime (server world seconds) */
+	UPROPERTY(Replicated) TArray<FVector_NetQuantize> ZoneCenters;
+	UPROPERTY(Replicated) TArray<uint8> ZoneKinds;
+	UPROPERTY(Replicated) float ZonesEndTime = 0.f;
+	UPROPERTY(Replicated) float ZoneRadius = 380.f;
+	/** Merchant Clock Sweep: hand(s) turning about SweepCenter; angle = SweepStartYaw + SweepRate x (server time - SweepStartTime) */
+	UPROPERTY(Replicated) bool bSweep = false;
+	UPROPERTY(Replicated) bool bSweepTwin = false;
+	UPROPERTY(Replicated) FVector_NetQuantize SweepCenter = FVector_NetQuantize(FVector::ZeroVector);
+	UPROPERTY(Replicated) float SweepStartYaw = 0.f;
+	UPROPERTY(Replicated) float SweepStartTime = 0.f;
+	UPROPERTY(Replicated) float SweepRate = 120.f;
+	UPROPERTY(Replicated) float SweepLength = 2000.f;
+	/** Entrance: climbing out of the lantern (seconds left of BossEntranceSeconds) */
+	UPROPERTY(Replicated) float EntranceLeft = 0.f;
+	UPROPERTY(Replicated) float EntranceTotal = 3.f;
+	/** Time Zones: this machine's speed multiplier at a spot (1 outside every zone); reapers call it in UpdateZoneMovement */
+	float ZoneSpeedMultAt(const FVector2D& P) const;
+	/** Clock Sweep: the hand angle (degrees) on this machine */
+	float SweepYawNow(int32 Hand) const;
+
 	UPROPERTY(VisibleAnywhere) TObjectPtr<UStaticMeshComponent> Body;
 	UPROPERTY(VisibleAnywhere) TObjectPtr<UStaticMeshComponent> Crown;
 	UPROPERTY(VisibleAnywhere) TObjectPtr<UStaticMeshComponent> EyeL;
@@ -122,6 +146,10 @@ protected:
 		float Delay = 1.f;
 		float Damage = 10.f;
 		FColor Colour = FColor::Red;
+		/** Nov 25: also leaves a pit (Cracks) / a wall post (TombWall) for this long; Knock = outward launch on hit */
+		float PitSeconds = 0.f;
+		bool bWallPost = false;
+		float Knock = 0.f;
 	};
 	struct FBossHazard // lingering pool
 	{
@@ -129,7 +157,41 @@ protected:
 		float Radius = 250.f;
 		float TimeLeft = 6.f;
 		float Dps = 8.f;
+		/** Tombstone wall post: pushes reapers out (a wall you route round) instead of a pool you stand in */
+		bool bWall = false;
 	};
+	struct FBossShip // Drowned King ghost ship crossing the map, firing broadsides
+	{
+		FVector Pos = FVector::ZeroVector;
+		FVector Dir = FVector::ForwardVector;
+		float Left = 5.f;
+		float FireTimer = 0.f;
+		float FxTimer = 0.f;
+		TArray<TWeakObjectPtr<ASQCharacter>> Hit;
+	};
+	TArray<FBossShip> Ships;
+	TArray<FVector> RaiseSpots;
+	/** Raise: where the boss has walked (sampled every second, newest last) */
+	TArray<FVector> PathTrail;
+	float PathTimer = 0.f;
+	/** Rewind: health 0..5 s ago (sampled every 0.5 s, oldest first) */
+	TArray<float> HealthHistory;
+	float HistoryTimer = 0.f;
+	float RewindHealth = 0.f;
+	float GearHold = 0.f;
+	TArray<TWeakObjectPtr<ASQCharacter>> SweepHit;
+	float KingTideTick = 0.f;
+	FVector SkinRestLoc = FVector::ZeroVector;
+	bool bSkinRestKnown = false;
+	/** Map mechanic abilities (Nov 25): begin / resolve / tick, kept apart from the original rotation */
+	bool BeginMapAbility(ESQBossAbility Ability, const FSQBossDef& Def, float Windup);
+	void ResolveMapAbility(ESQBossAbility Ability, const FSQBossDef& Def);
+	bool TickMapAbility(ESQBossAbility Ability, float DeltaSeconds, const FSQBossDef& Def, bool& bHandled);
+	void TickMapPassives(float DeltaSeconds, const FSQBossDef& Def);
+	void UpdateMapVisuals(float DeltaSeconds);
+	UPROPERTY() TObjectPtr<UStaticMeshComponent> HandBeam;
+	UPROPERTY() TObjectPtr<UStaticMeshComponent> HandBeamTwin;
+	UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> HandMID;
 	void ServerAbilities(float DeltaSeconds, const FSQBossDef& Def);
 	void ServerPhase(const FSQBossDef& Def);
 	void ServerHazards(float DeltaSeconds);
@@ -161,7 +223,8 @@ protected:
 	float ActiveTime = 0.f;
 	float PulseTimer = 0.f;
 	int32 PulseCount = 0;
-	float AbilityCd[16] = { 0.f };
+	static constexpr int32 MaxAbilitySlots = 32;
+	float AbilityCd[MaxAbilitySlots] = { 0.f };
 	ESQBossAbility LastAbility = ESQBossAbility::None;
 	TWeakObjectPtr<ASQCharacter> Victim;
 	TWeakObjectPtr<ASQCharacter> LastVictim;

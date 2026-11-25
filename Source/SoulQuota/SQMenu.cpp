@@ -778,6 +778,12 @@ void ASQMenuHUD::OpenPage(ESQMenuPage NewPage)
 		StoreSave();
 		bSettingsDirty = false;
 	}
+	if (Page == ESQMenuPage::Skins && Showroom.IsValid())
+	{
+		// leaving the shop: back to the reaper you play, in the skin it wears
+		Showroom->SetSkinPreview(NAME_None);
+		Showroom->ShowReaper(PreferredReaper());
+	}
 	if (Page == ESQMenuPage::Quests)
 	{
 		// the NEW badges have been seen
@@ -935,6 +941,7 @@ void ASQMenuHUD::DrawHUD()
 	case ESQMenuPage::Quests: DrawQuestsPage(); break;
 	case ESQMenuPage::Missions: DrawMissionsPage(); break;
 	case ESQMenuPage::Upgrades: DrawUpgradesPage(); break;
+	case ESQMenuPage::Skins: DrawSkinsPage(); break;
 	default: break;
 	}
 	DrawAlpha = 1.f;
@@ -1378,11 +1385,20 @@ void ASQMenuHUD::DrawMainPage()
 	auto ButtonIn = [&](int32 Slot) { return MenuAppear(T, Lead + 0.065f * Slot, 0.4f); };
 
 	DrawTitleBlock(X0, 40.f * U);
+	// Nov 25 2026: both meta currencies under the title (gold = Death's Office, souls = skins)
+	if (const USQSaveGame* BankSave = GetSave())
+	{
+		DrawAlpha = MenuAppear((TimeNow - (bFirst ? MenuOpenedAt : PageChangeTime)) * (bFirst ? 1.f : 2.f), bFirst ? 0.5f : 0.05f, 0.4f);
+		const FString GoldText = FString::Printf(TEXT("%s GOLD"), *FText::AsNumber(BankSave->OvertimePay).ToString());
+		const float GoldW = Txt(GoldText, LabelFont(true), 17.f, X0, 252.f * U, SQUI::Amber);
+		Txt(FString::Printf(TEXT("%s SOULS"), *FText::AsNumber(BankSave->SoulBank).ToString()), LabelFont(true), 17.f, X0 + GoldW + 22.f * U, 252.f * U, SQUI::Soul);
+		DrawAlpha = 1.f;
+	}
 
 	// Up / Down picks a button (HOW TO PLAY, CREDITS and QUIT share the last row: Left / Right between them)
-	// 0 START, 1 JOIN, 2 MISSIONS, 3 REAPERS, 4 UPGRADES, 5 QUESTS, 6 SETTINGS, then HOW TO PLAY (7), CREDITS (8) and QUIT (9) on one row
-	constexpr int32 NumMain = 10;
-	constexpr int32 FirstLink = 7;
+	// 0 START, 1 JOIN, 2 MISSIONS, 3 REAPERS, 4 UPGRADES, 5 QUESTS, 6 SKINS, 7 SETTINGS, then HOW TO PLAY (8), CREDITS (9) and QUIT (10) on one row
+	constexpr int32 NumMain = 11;
+	constexpr int32 FirstLink = 8;
 	if (bNavDown)
 	{
 		MainFocus = MainFocus >= FirstLink ? 0 : MainFocus + 1;
@@ -1468,13 +1484,19 @@ void ASQMenuHUD::DrawMainPage()
 		}
 	}
 	Y += BH + Gap;
-	if (DrawMainButton(6, TEXT("SETTINGS"), FString(), SQUI::Muted, X0, Y, BW, BH, false, ButtonIn(6)))
+	if (DrawMainButton(6, TEXT("SKINS"), FString::Printf(TEXT("%s SOULS"), *FText::AsNumber(MainSave ? MainSave->SoulBank : 0).ToString()), SQUI::Soul, X0, Y, BW, BH, false, ButtonIn(6)))
+	{
+		SkinsReaper = PreferredReaper();
+		OpenPage(ESQMenuPage::Skins);
+	}
+	Y += BH + Gap;
+	if (DrawMainButton(7, TEXT("SETTINGS"), FString(), SQUI::Muted, X0, Y, BW, BH, false, ButtonIn(7)))
 	{
 		OpenPage(ESQMenuPage::Settings);
 	}
 	Y += BH + 20.f * U;
 	float LinkX = X0 + 8.f * U;
-	if (DrawLinkButton(7, TEXT("HOW TO PLAY"), LinkX, Y, SQUI::Soul, ButtonIn(7)))
+	if (DrawLinkButton(8, TEXT("HOW TO PLAY"), LinkX, Y, SQUI::Soul, ButtonIn(8)))
 	{
 		bHowToOpen = true;
 		HowToOpenedAt = TimeNow;
@@ -1482,12 +1504,12 @@ void ASQMenuHUD::DrawMainPage()
 		PlayUI(TEXT("Soul"), 0.3f, 1.f);
 	}
 	LinkX += TxtWidth(TEXT("HOW TO PLAY"), HeadFont(), 22.f) + 44.f * U;
-	if (DrawLinkButton(8, TEXT("CREDITS"), LinkX, Y, SQUI::Muted, ButtonIn(8)))
+	if (DrawLinkButton(9, TEXT("CREDITS"), LinkX, Y, SQUI::Muted, ButtonIn(9)))
 	{
 		OpenPage(ESQMenuPage::Credits);
 	}
 	LinkX += TxtWidth(TEXT("CREDITS"), HeadFont(), 22.f) + 44.f * U;
-	if (DrawLinkButton(9, TEXT("QUIT"), LinkX, Y, SQUI::Danger, ButtonIn(9)))
+	if (DrawLinkButton(10, TEXT("QUIT"), LinkX, Y, SQUI::Danger, ButtonIn(10)))
 	{
 		bQuitAsk = true;
 		QuitAskTime = TimeNow;
@@ -1505,6 +1527,7 @@ void ASQMenuHUD::DrawMainPage()
 			TEXT("Pick your reaper and see their kit. Hire new reapers with banked gold."),
 			TEXT("Death's Office: spend banked gold on permanent upgrades for every run."),
 			TEXT("Unlocks: every goal, what it gives you (gold, reapers, items) and how close you are."),
+			TEXT("Skins: spend the souls you bank in runs on new looks for every reaper."),
 			TEXT("Volume, mouse sensitivity, display mode and tutorial tips."),
 			TEXT("How to play, in 3 short cards."),
 			TEXT("Who made this."),
@@ -1516,7 +1539,7 @@ void ASQMenuHUD::DrawMainPage()
 		}
 		if (NoteFocus >= 0 && NoteFocus < NumMain)
 		{
-			DrawAlpha = MenuAppear(TimeNow - NoteFocusTime, 0.05f, 0.25f) * ButtonIn(10);
+			DrawAlpha = MenuAppear(TimeNow - NoteFocusTime, 0.05f, 0.25f) * ButtonIn(11);
 			const float NoteH = 66.f * U;
 			Round(SQUI::WithAlpha(SQUI::Panel, 0.85f), X0, Y, BW, NoteH, 12.f * U);
 			Round(SQUI::Soul, X0 + 10.f * U, Y + 14.f * U, 4.f * U, NoteH - 28.f * U, 2.f * U);
@@ -3576,4 +3599,121 @@ void ASQMenuHUD::DrawUpgradesPage()
 			ShowToast(FString::Printf(TEXT("Needs %d banked gold (you have %d)."), L.NextCost, Save->OvertimePay), SQUI::Danger);
 		}
 	}
+}
+
+// ================================================================ SKINS (Nov 25 2026, Docs/RunStructure.md)
+
+void ASQMenuHUD::DrawSkinsPage()
+{
+	if (DrawPageFrame(TEXT("SKINS"), 0.f))
+	{
+		OpenPage(ESQMenuPage::Main);
+		return;
+	}
+	const float U = UnitPx;
+	const float CW = Canvas->ClipX;
+	const float X0 = FMath::Max(72.f * U, CW * 0.04f);
+	const USQData* D = USQData::Get(this);
+	USQSaveGame* Save = GetSave();
+	if (!D || D->Reapers.Num() == 0 || !Save) return;
+	const TArray<FSQReaperDef>& Roster = D->Reapers;
+	if (SkinsReaper.IsNone() || !D->FindReaper(SkinsReaper)) SkinsReaper = PreferredReaper();
+	int32 RosterIdx = FMath::Max(0, Roster.IndexOfByPredicate([this](const FSQReaperDef& Each) { return Each.Id == SkinsReaper; }));
+
+	// Up / Down (or the arrows by the name): the next reaper; Left / Right: the skin cards
+	const float Top = 170.f * U;
+	bool bReaperChanged = false;
+	const FString PrevLabel = TEXT("<");
+	const FString NextLabel = TEXT(">");
+	const float ArrowW = 46.f * U, ArrowH = 46.f * U;
+	int32 NoFocus = -1;
+	if (bNavUp || DrawPageButton(PrevLabel, X0, Top, ArrowW, ArrowH, 0, true, -1, NoFocus))
+	{
+		RosterIdx = (RosterIdx + Roster.Num() - 1) % Roster.Num();
+		bReaperChanged = true;
+	}
+	if (bNavDown || DrawPageButton(NextLabel, X0 + 470.f * U, Top, ArrowW, ArrowH, 0, true, -1, NoFocus))
+	{
+		RosterIdx = (RosterIdx + 1) % Roster.Num();
+		bReaperChanged = true;
+	}
+	const FSQReaperDef& Def = Roster[RosterIdx];
+	if (bReaperChanged)
+	{
+		SkinsReaper = Def.Id;
+		PageFocus = 0;
+		PlayUI(TEXT("Soul"), 0.16f, 1.3f);
+	}
+	if (Showroom.IsValid() && Showroom->GetShownReaper() != SkinsReaper) Showroom->ShowReaper(SkinsReaper);
+	Txt(Def.Name.ToUpper(), HeadFont(), FitPx(Def.Name.ToUpper(), HeadFont(), 30.f, 390.f * U), X0 + 258.f * U, Top + 6.f * U, Def.Color, 1);
+	Txt(FString::Printf(TEXT("SOUL BANK  %s"), *FText::AsNumber(Save->SoulBank).ToString()), LabelFont(true), 18.f, X0, Top + 64.f * U, SQUI::Soul);
+	Txt(TEXT("Every soul you bank in a run lands here."), LabelFont(false), 14.f, X0, Top + 90.f * U, SQUI::Muted);
+
+	// The cards: the standard look, then this reaper's skins (Cosmetics.csv Kind Skin)
+	TArray<const FSQCosmeticDef*> Skins;
+	SQQuests::SkinsFor(SkinsReaper, Skins);
+	const int32 NumCards = Skins.Num() + 1;
+	if (bNavRight) PageFocus = (PageFocus + 1) % NumCards;
+	if (bNavLeft) PageFocus = (PageFocus + NumCards - 1) % NumCards;
+	PageFocus = FMath::Clamp(PageFocus, 0, NumCards - 1);
+	const FName Worn = SQQuests::EquippedSkin(Save, SkinsReaper);
+	const float CardW = 516.f * U, CardH = 92.f * U, Gap = 12.f * U;
+	float Y = Top + 124.f * U;
+	for (int32 CardIdx = 0; CardIdx < NumCards; ++CardIdx)
+	{
+		const FSQCosmeticDef* Cos = CardIdx > 0 ? Skins[CardIdx - 1] : nullptr;
+		const bool bOwned = !Cos || Save->SkinsOwned.Contains(Cos->Id);
+		const bool bWearing = Cos ? Worn == Cos->Id : Worn.IsNone();
+		const bool bAfford = !Cos || bOwned || Save->SoulBank >= Cos->Price;
+		const bool bOver = MouseIn(X0, Y, CardW, CardH);
+		if (bOver && bMouseMoved && PageFocus != CardIdx)
+		{
+			PageFocus = CardIdx;
+			PlayUI(TEXT("Soul"), 0.12f, 1.5f);
+		}
+		const bool bFocused = PageFocus == CardIdx;
+		const FLinearColor Swatch = Cos ? Cos->Color : Def.Color;
+		GlowAround(Swatch, X0, Y, CardW, CardH, 14.f * U, bFocused ? 0.55f : 0.f);
+		Round(bFocused ? SQUI::PanelHover : SQUI::Panel, X0, Y, CardW, CardH, 14.f * U);
+		Round(Swatch, X0 + 14.f * U, Y + 14.f * U, 10.f * U, CardH - 28.f * U, 4.f * U);
+		const FString Name = Cos ? Cos->Name.ToUpper() : FString(TEXT("STANDARD"));
+		Txt(Name, HeadFont(), 24.f, X0 + 40.f * U, Y + 12.f * U, bAfford ? SQUI::BoneWhite : SQUI::Disabled);
+		const FString Desc = Cos ? Cos->Desc : FString(TEXT("The look they signed on with."));
+		TxtWrap(Desc, LabelFont(false), 14.f, X0 + 40.f * U, Y + 48.f * U, CardW - 220.f * U, SQUI::Muted, 18.f * U, 2);
+		FString State;
+		FLinearColor StateCol = SQUI::Muted;
+		if (bWearing) { State = TEXT("WEARING"); StateCol = SQUI::Soul; }
+		else if (bOwned) { State = TEXT("OWNED - WEAR"); StateCol = SQUI::BoneWhite; }
+		else if (bAfford) { State = FString::Printf(TEXT("%d SOULS - BUY"), Cos->Price); StateCol = SQUI::Soul; }
+		else { State = FString::Printf(TEXT("%d SOULS"), Cos->Price); StateCol = SQUI::Disabled; }
+		Txt(State, LabelFont(true), 16.f, X0 + CardW - 18.f * U, Y + 14.f * U, StateCol, 2);
+		if (!bOwned && !bAfford) Padlock(X0 + CardW - 36.f * U, Y + CardH - 30.f * U, 18.f * U, SQUI::Disabled);
+		if ((bOver && bClick) || (bFocused && bConfirm))
+		{
+			bClick = false;
+			bConfirm = false;
+			FString Result;
+			if (!Cos)
+			{
+				Save->SkinsEquipped.Add(SkinsReaper, NAME_None);
+				StoreSave();
+				Result = TEXT("Standard look equipped.");
+			}
+			else
+			{
+				Result = SQQuests::BuyOrEquipSkin(Save, Cos->Id);
+			}
+			ShowToast(Result, bAfford ? SQUI::Soul : SQUI::Danger);
+			PlayUI(TEXT("Soul"), 0.3f, bAfford ? 1.f : 0.6f);
+			if (Showroom.IsValid() && bAfford) Showroom->Celebrate();
+		}
+		Y += CardH + Gap;
+	}
+	// The showroom wears the focused skin (a preview, bought or not)
+	if (Showroom.IsValid())
+	{
+		const FSQCosmeticDef* Focused = PageFocus > 0 && Skins.IsValidIndex(PageFocus - 1) ? Skins[PageFocus - 1] : nullptr;
+		Showroom->SetSkinPreview(Focused ? Focused->Id : FName(TEXT("Standard")));
+	}
+	Txt(TEXT("UP / DOWN: reaper     LEFT / RIGHT: skin     ENTER / CLICK: buy or wear"), LabelFont(true), 13.f, X0, Y + 8.f * U, SQUI::Muted);
 }

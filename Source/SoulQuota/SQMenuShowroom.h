@@ -40,6 +40,11 @@ public:
 	/** REAPERS page: the camera eases in closer to the reaper. */
 	void SetCloseUp(bool bOn) { bCloseUp = bOn; }
 	FName GetShownReaper() const { return ShownReaper; }
+	/** Nov 25 2026 SKINS page: preview this skin on the shown reaper (none = the skin the profile wears; Standard = "Standard") */
+	void SetSkinPreview(FName SkinId);
+	/** The palette the shown reaper wears (preview, else the equipped skin, else the standard palette) */
+	class UTexture* ShownTexture(FName Model) const;
+	FName SkinPreview;
 
 	// ---- Lobby studio (Nov 9): the in-game lobby spawns this set far above the arena and renders it through a scene capture
 	// into a render target the HUD draws (big centre-stage preview, and the roster's portrait cards).

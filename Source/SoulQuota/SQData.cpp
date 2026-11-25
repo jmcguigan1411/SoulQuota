@@ -212,7 +212,9 @@ namespace
 	ESQBossAbility ParseBossAbility(const FString& V)
 	{
 		static const TCHAR* const AbilityNames[] = { TEXT("None"), TEXT("Slam"), TEXT("Shockwave"), TEXT("Spiral"), TEXT("Fan"), TEXT("Charge"),
-			TEXT("Summon"), TEXT("Pools"), TEXT("Vortex"), TEXT("Mark"), TEXT("Pylons"), TEXT("Tether"), TEXT("Ring") };
+			TEXT("Summon"), TEXT("Pools"), TEXT("Vortex"), TEXT("Mark"), TEXT("Pylons"), TEXT("Tether"), TEXT("Ring"),
+			TEXT("TombWall"), TEXT("Burrow"), TEXT("Raise"), TEXT("Cracks"), TEXT("Flood"), TEXT("Tentacles"), TEXT("GhostShip"), TEXT("KingTide"),
+			TEXT("TimeZones"), TEXT("ClockSweep"), TEXT("Rewind") };
 		for (int32 AbilityIdx = 0; AbilityIdx < static_cast<int32>(UE_ARRAY_COUNT(AbilityNames)); ++AbilityIdx)
 		{
 			if (V.Equals(AbilityNames[AbilityIdx], ESearchCase::IgnoreCase)) return static_cast<ESQBossAbility>(AbilityIdx);

@@ -7,6 +7,7 @@
 #include "Net/UnrealNetwork.h"
 #include "Engine/World.h"
 #include "SQArena.h"
+#include "SQArt.h"
 #include "SQCharacter.h"
 #include "SQData.h"
 #include "SQGameState.h"
@@ -80,16 +81,41 @@ void ASQChest::ApplyLook()
 	if (bLookApplied && bLookFree == bFree) return;
 	bLookApplied = true;
 	bLookFree = bFree;
-	// Paid: dark coffin-wood with brass bands. Free: gilded, glowing.
-	const FLinearColor Wood = bFree ? FLinearColor(0.85f, 0.62f, 0.12f) : FLinearColor(0.16f, 0.09f, 0.05f);
-	const FLinearColor Trim = bFree ? FLinearColor(1.f, 0.9f, 0.45f) : FLinearColor(0.75f, 0.55f, 0.2f);
-	Body->SetMaterial(0, SQ::ColorMID(this, Wood));
-	Lid->SetMaterial(0, SQ::ColorMID(this, Wood * 1.15f));
-	BandMID = SQ::ColorMID(this, Trim);
-	Band->SetMaterial(0, BandMID);
-	HaloMID = SQ::ColorMID(this, bFree ? FLinearColor(1.f, 0.8f, 0.25f) : FLinearColor(1.f, 0.6f, 0.15f));
+	// Nov 25 2026 (Jack): a gloomy bone chest - dark blue planks, black iron, bone posts and ribs, a skull lock with
+	// ghost-blue eyes (ArtSource/Props/Chest_Bone*.fbx, imported by the setup run). Free chests glow brighter.
+	const FLinearColor Ghost = bFree ? FLinearColor(0.55f, 0.85f, 1.f) : FLinearColor(0.35f, 0.6f, 1.f);
+	UStaticMesh* BoneBody = SQArt::Prop(FName(TEXT("Chest_Bone")));
+	UStaticMesh* BoneLid = SQArt::Prop(FName(TEXT("Chest_BoneLid")));
+	bBoneModel = BoneBody && BoneLid;
+	if (bBoneModel)
+	{
+		UTexture* ChestTex = LoadObject<UTexture>(nullptr, TEXT("/Game/Art/Textures/T_Chest.T_Chest"), nullptr, LOAD_NoWarn | LOAD_Quiet);
+		Body->SetStaticMesh(BoneBody);
+		Body->SetRelativeLocation(FVector::ZeroVector);
+		Body->SetRelativeScale3D(FVector::OneVector);
+		Lid->SetStaticMesh(BoneLid);
+		Lid->SetRelativeLocation(FVector(-32.f, 0.f, 48.f)); // the hinge: back edge of the body top (chest_build.py D / 2, H)
+		Lid->SetRelativeScale3D(FVector::OneVector);
+		Band->SetVisibility(false);
+		if (ChestTex)
+		{
+			const float Glow = bFree ? 6.f : 3.f;
+			SQArt::ApplyGlowSlots(Body, this, ChestTex, Glow);
+			SQArt::ApplyGlowSlots(Lid, this, ChestTex, Glow);
+		}
+	}
+	else
+	{
+		// Primitive stand-in in the same colours: dark blue planks, black band, bone-white lid trim
+		const FLinearColor Wood = bFree ? FLinearColor(0.07f, 0.11f, 0.24f) : FLinearColor(0.04f, 0.06f, 0.14f);
+		Body->SetMaterial(0, SQ::ColorMID(this, Wood));
+		Lid->SetMaterial(0, SQ::ColorMID(this, FLinearColor(0.82f, 0.79f, 0.7f)));
+		BandMID = SQ::ColorMID(this, FLinearColor(0.012f, 0.012f, 0.02f));
+		Band->SetMaterial(0, BandMID);
+		if (BandMID) BandMID->SetScalarParameterValue(TEXT("Glow"), 0.f);
+	}
+	HaloMID = SQ::ColorMID(this, Ghost);
 	Halo->SetMaterial(0, HaloMID);
-	if (BandMID) BandMID->SetScalarParameterValue(TEXT("Glow"), bFree ? 1.2f : 0.3f);
 	// The shared cue replaces the old flat halo disc (kept as a faint shadow-catcher under the chest)
 	Halo->SetRelativeScale3D(FVector(1.05f, 1.05f, 0.02f));
 	if (Cue)
@@ -109,12 +135,19 @@ void ASQChest::Tick(float DeltaSeconds)
 	{
 		// Nov 19 2026: light pillar, coins of light and a ground flash as the lid goes up (FxRecipes.csv ChestOpen)
 		bOpenFxArmed = false;
-		SQFxRecipe::PlayShared(GetWorld(), FName(TEXT("ChestOpen")), GetActorLocation(), bFree ? FLinearColor(1.f, 0.85f, 0.35f) : FLinearColor(1.f, 0.78f, 0.23f), 220.f);
+		SQFxRecipe::PlayShared(GetWorld(), FName(TEXT("ChestOpen")), GetActorLocation(), bFree ? FLinearColor(0.7f, 0.9f, 1.f) : FLinearColor(0.45f, 0.7f, 1.f), 220.f); // ghost light from the bone chest
 	}
 	// The lid swings open once opened; the halo breathes until then
 	LidOpen = FMath::FInterpTo(LidOpen, bOpened ? 1.f : 0.f, DeltaSeconds, 6.f);
-	Lid->SetRelativeLocation(FVector(-30.f * LidOpen, 0.f, 58.f + 25.f * LidOpen));
-	Lid->SetRelativeRotation(FRotator(-100.f * LidOpen, 0.f, 0.f));
+	if (bBoneModel)
+	{
+		Lid->SetRelativeRotation(FRotator(105.f * LidOpen, 0.f, 0.f)); // swings up about the hinge at its origin
+	}
+	else
+	{
+		Lid->SetRelativeLocation(FVector(-30.f * LidOpen, 0.f, 58.f + 25.f * LidOpen));
+		Lid->SetRelativeRotation(FRotator(-100.f * LidOpen, 0.f, 0.f));
+	}
 	if (HaloMID)
 	{
 		const float Breath = 0.5f + 0.5f * FMath::Sin(LookTime * (bFree ? 4.f : 2.f));

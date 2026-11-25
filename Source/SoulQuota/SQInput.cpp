@@ -2,6 +2,9 @@
 #include "SQInput.h"
 #include "SQSave.h"
 #include "GameFramework/PlayerController.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Rendering/SlateRenderer.h"
+#include "Rendering/RenderingCommon.h"
 
 namespace
 {
@@ -151,6 +154,25 @@ void SQInput::ResetBinds()
 	}
 }
 
+void SQInput::ApplyColourVision(uint8 Mode, float Strength)
+{
+	// Nov 25 2026: SETTINGS > ACCESS > Colour-blind mode. Slate's colour-vision CORRECTION over the whole game window
+	// (world, HUD and menus): shifts the colours a protan / deutan / tritan player confuses into ones they can tell apart.
+	// Only re-applied when the setting changes.
+	static int32 AppliedKey = -1;
+	const int32 Severity = FMath::Clamp(FMath::RoundToInt(Strength * 10.f), 0, 10); // the renderer takes 0..10
+	const int32 Key = Mode == 0 ? 0 : (Mode * 100 + Severity);
+	if (Key == AppliedKey || !FSlateApplication::IsInitialized()) return;
+	FSlateRenderer* Renderer = FSlateApplication::Get().GetRenderer();
+	if (!Renderer) return;
+	AppliedKey = Key;
+	const EColorVisionDeficiency Type = Mode == 1 ? EColorVisionDeficiency::Protanope
+		: Mode == 2 ? EColorVisionDeficiency::Deuteranope
+		: Mode == 3 ? EColorVisionDeficiency::Tritanope
+		: EColorVisionDeficiency::NormalVision;
+	Renderer->SetColorVisionDeficiencyType(Type, Mode == 0 ? 0 : Severity, /*bCorrectDeficiency*/ Mode != 0, /*bShowCorrectionWithDeficiency*/ false);
+}
+
 void SQInput::Poll(const APlayerController* PC)
 {
 	if (const USQSaveGame* Save = USQSaveGame::Load())
@@ -158,6 +180,7 @@ void SQInput::Poll(const APlayerController* PC)
 		bSQShapeCues = Save->bShapeCues;
 		bSQReduceFlash = Save->bReduceFlash;
 		bSQVibration = Save->bVibration;
+		ApplyColourVision(Save->ColourBlindMode, Save->ColourBlindStrength);
 	}
 	if (!PC || !PC->IsLocalController()) return;
 	// Gamepad: any button, or a stick pushed well off centre

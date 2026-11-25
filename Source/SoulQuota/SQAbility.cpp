@@ -20,6 +20,7 @@
 #include "SQAugments.h"
 #include "SQLantern.h"
 #include "GameFramework/PlayerState.h"
+#include "SQPlayerState.h"
 
 // ---------------------------------------------------------------- helpers (prefixed: unity build)
 namespace
@@ -1782,6 +1783,7 @@ void USQAbilityComponent::TickPassive(float DeltaTime)
 				const int32 Amount = FMath::Clamp(FMath::CeilToInt(static_cast<float>(Cand->Carried) * FMath::Clamp(P[2], 0.f, 1.f)), 1, Cand->Carried);
 				Cand->Carried -= Amount;
 				Total += Amount;
+				if (ASQPlayerState* CandPS = Cand->GetPlayerState<ASQPlayerState>()) CandPS->RunSoulsBanked += Amount; // their souls, their bank
 			}
 			if (Total > 0)
 			{

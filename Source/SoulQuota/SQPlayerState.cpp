@@ -34,6 +34,8 @@ void ASQPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 	DOREPLIFETIME(ASQPlayerState, bInPickPause);
 	DOREPLIFETIME(ASQPlayerState, bShopReady);
 	DOREPLIFETIME(ASQPlayerState, Kills);
+	DOREPLIFETIME(ASQPlayerState, RunSoulsBanked);
+	DOREPLIFETIME(ASQPlayerState, SkinId);
 	DOREPLIFETIME(ASQPlayerState, Gold);
 	DOREPLIFETIME(ASQPlayerState, ChestsOpened);
 	DOREPLIFETIME(ASQPlayerState, AugmentOffers);
@@ -48,6 +50,98 @@ void ASQPlayerState::ClientInitialize(AController* C)
 	// A remote client's own state: tell the server our Death's Office ranks (the host sends from ASQGameMode::PostLogin)
 	const APlayerController* OwnerPC = Cast<APlayerController>(C);
 	if (OwnerPC && OwnerPC->IsLocalController() && !HasAuthority()) SendMetaRanks();
+	if (OwnerPC && OwnerPC->IsLocalController()) SendSkins();
+}
+
+// ---------------------------------------------------------------- Nov 25 2026: skins and run records (Docs/RunStructure.md)
+
+void ASQPlayerState::SendSkins()
+{
+	const APlayerController* OwnerPC = Cast<APlayerController>(GetOwner());
+	if (!OwnerPC || !OwnerPC->IsLocalController()) return;
+	TArray<FName> Worn;
+	if (const USQSaveGame* Save = USQSaveGame::Load())
+	{
+		for (const TPair<FName, FName>& Pair : Save->SkinsEquipped)
+		{
+			const FName Skin = SQQuests::EquippedSkin(Save, Pair.Key);
+			if (!Skin.IsNone()) Worn.Add(Skin);
+		}
+	}
+	ServerSetSkins(Worn);
+}
+
+void ASQPlayerState::ServerSetSkins_Implementation(const TArray<FName>& InSkins)
+{
+	OwnerSkins.Reset();
+	for (const FName& Skin : InSkins)
+	{
+		const FSQCosmeticDef* Cos = SQQuests::FindCosmetic(Skin);
+		if (Cos && Cos->Kind == TEXT("Skin") && OwnerSkins.Num() < 64) OwnerSkins.Add(Skin);
+	}
+	PickSkinForReaper();
+}
+
+void ASQPlayerState::PickSkinForReaper()
+{
+	if (!HasAuthority()) return;
+	FName Wear = NAME_None;
+	for (const FName& Skin : OwnerSkins)
+	{
+		const FSQCosmeticDef* Cos = SQQuests::FindCosmetic(Skin);
+		if (Cos && Cos->Reaper == ReaperId) { Wear = Skin; break; }
+	}
+	if (Wear == SkinId) return;
+	SkinId = Wear;
+	if (GetNetMode() != NM_DedicatedServer) OnRep_SkinId(); // listen-server host sees it at once
+}
+
+void ASQPlayerState::OnRep_SkinId()
+{
+	if (ASQCharacter* C = GetPawn<ASQCharacter>()) C->RefreshSkinLook();
+}
+
+void ASQPlayerState::ClientStageCleared_Implementation(FName MissionId, bool bHard)
+{
+	USQSaveGame* Save = USQSaveGame::Load();
+	const FSQMissionDef* Mission = USQMissions::FindMission(MissionId);
+	if (!Save || !Mission) return;
+	int32 Bonus = 0;
+	if (!Save->HasClearedMission(MissionId))
+	{
+		Bonus += Mission->FirstClearGold;
+		Save->MissionsCleared.Add(MissionId);
+	}
+	if (bHard && !Save->HasClearedHard(MissionId))
+	{
+		Bonus += Mission->HardFirstClearGold;
+		Save->HardCleared.Add(MissionId);
+	}
+	Save->Contracts.AddUnique(Mission->Biome);
+	if (Bonus > 0)
+	{
+		Save->OvertimePay = FMath::Clamp(Save->OvertimePay + Bonus, 0, 2000000000);
+		ClientNotice(TEXT("STAGE CLEARED"), FString::Printf(TEXT("First clear of %s: +%d banked gold"), *Mission->Name, Bonus), 0, 0);
+	}
+	USQSaveGame::Store(Save);
+}
+
+void ASQPlayerState::ClientRunRecords_Implementation(int32 Souls, int32 StagesCleared, bool bEndless, float EndlessSeconds, int32 EndlessKills, int32 RunKills, FName PlayedReaper)
+{
+	USQSaveGame* Save = USQSaveGame::Load();
+	if (!Save) return;
+	const int32 Add = FMath::Clamp(Souls, 0, 10000000);
+	Save->SoulBank = FMath::Clamp(Save->SoulBank + Add, 0, 2000000000);
+	Save->SoulsEarnedTotal = FMath::Clamp(Save->SoulsEarnedTotal + Add, 0, 2000000000);
+	if (bEndless)
+	{
+		Save->RunsFullCleared++;
+		Save->EndlessBestSeconds = FMath::Max(Save->EndlessBestSeconds, EndlessSeconds);
+		Save->EndlessBestKills = FMath::Max(Save->EndlessBestKills, EndlessKills);
+		int32& ReaperBest = Save->EndlessBestKillsByReaper.FindOrAdd(PlayedReaper);
+		ReaperBest = FMath::Max(ReaperBest, EndlessKills);
+	}
+	USQSaveGame::Store(Save);
 }
 
 void ASQPlayerState::GrantLevelUp()
@@ -321,6 +415,7 @@ void ASQPlayerState::ResetForRun()
 	bPickStripOpen = false;
 	OfferIdleSeconds = 0.f;
 	Kills = 0;
+	RunSoulsBanked = 0;
 	RunJoinNight = 0;
 	MidRunPickDeadline = -1.0;
 	Gold = 0;
@@ -635,6 +730,7 @@ void ASQPlayerState::ClientQuestRunStart_Implementation()
 {
 	LocalRunStats.Reset();
 	SendMetaRanks(); // a mission is starting: make sure the server has this profile's latest Death's Office ranks
+	SendSkins();
 }
 
 void ASQPlayerState::ClientQuestRunEnd_Implementation(bool bWon, FName PlayedReaper, int32 BonusCoins)

@@ -33,6 +33,8 @@
 #include "SQPlayerController.h"
 #include "SQAugments.h"
 #include "SQSave.h"
+#include "SQBoss.h"
+#include "SQQuests.h"
 
 // ---------------------------------------------------------------- movement (body blocking + movement tech)
 
@@ -504,7 +506,8 @@ void ASQCharacter::BeginPlay()
 
 	BodyMesh->SetStaticMesh(SQ::Mesh(TEXT("Cylinder")));
 	HeadMesh->SetStaticMesh(SQ::Mesh(TEXT("Sphere")));
-	ScytheMesh->SetStaticMesh(SQ::Mesh(TEXT("Cube")));
+	// Only a stand-in until ApplyHeldWeapon runs; never overwrite a weapon that is already applied (a box held as a weapon)
+	if (!bHasWeaponArt) ScytheMesh->SetStaticMesh(SQ::Mesh(TEXT("Cylinder")));
 	AuraMesh->SetStaticMesh(SQ::Mesh(TEXT("Cylinder")));
 	OrbISM->SetStaticMesh(SQ::Mesh(TEXT("Sphere")));
 	SoulStackISM->SetStaticMesh(SQ::Mesh(TEXT("Sphere")));
@@ -514,7 +517,7 @@ void ASQCharacter::BeginPlay()
 	SoulStackISM->SetMaterial(0, SQ::ColorMID(this, FLinearColor(1.f, 0.85f, 0.45f)));
 	TurretISM->SetMaterial(0, SQ::ColorMID(this, FLinearColor(0.95f, 0.75f, 0.3f)));
 	AuraMesh->SetMaterial(0, SQ::ColorMID(this, FLinearColor(0.55f, 0.3f, 0.8f)));
-	ScytheMesh->SetMaterial(0, SQ::ColorMID(this, FLinearColor(0.35f, 0.25f, 0.15f)));
+	if (!bHasWeaponArt) ScytheMesh->SetMaterial(0, SQ::ColorMID(this, FLinearColor(0.35f, 0.25f, 0.15f)));
 
 	OrbISM->SetWorldTransform(FTransform::Identity);
 	TurretISM->SetWorldTransform(FTransform::Identity);
@@ -875,6 +878,8 @@ void ASQCharacter::UpdateZoneMovement()
 	float Mult = Arena ? Arena->PlayerSpeedMult(P) : 1.f;
 	// Kit: Haste buffs (replicated) and Femur's Fetch with a skull (CarriedSkull replicates): server and owner agree
 	if (Abilities) Mult *= Abilities->GetMoveSpeedMult();
+	// Nov 25 2026: the Merchant's time zones (haste / slow / freeze circles; replicated, so server and owner agree)
+	if (GS && IsValid(GS->Boss)) Mult *= GS->Boss->ZoneSpeedMultAt(P);
 	const bool bIce = Arena && Arena->IsOnIce(P);
 	Move->MaxWalkSpeed = Stats.MoveSpeed * Mult;
 	Move->GroundFriction = bIce ? 0.8f : 10.f;
@@ -1353,6 +1358,8 @@ void ASQCharacter::ServerTickBanking(float DeltaSeconds)
 	{
 		const float Mult = GS->bFinalCall ? D->Tune(TEXT("FinalCallMultiplier"), 2.f) : 1.f;
 		GS->Banked += FMath::RoundToInt(Carried * Mult);
+		// Nov 25 2026: this reaper's own banked souls (the owner's soul bank / skins currency)
+		if (ASQPlayerState* BankPS = GetPlayerState<ASQPlayerState>()) BankPS->RunSoulsBanked += FMath::RoundToInt(Carried * Mult);
 		Carried = 0;
 		BankProgress = 0.f;
 		const FVector LL = GS->Lantern->GetActorLocation();
@@ -3174,6 +3181,12 @@ void ASQCharacter::OnRep_Reaper()
 	ApplyVisuals();
 }
 
+void ASQCharacter::RefreshSkinLook()
+{
+	const ASQPlayerState* SkinPS = GetPlayerState<ASQPlayerState>();
+	if ((SkinPS ? SkinPS->SkinId : NAME_None) != AppliedSkinId) ApplyVisuals();
+}
+
 void ASQCharacter::OnRep_Stats()
 {
 	ApplySpeed();
@@ -3249,14 +3262,25 @@ void ASQCharacter::ApplyVisuals()
 		// The R_<Id> reaper bodies carry their own painted palette: keep it untinted (KayKit bodies take the robe tint)
 		const bool bOwnPalette = SkinModel.ToString().StartsWith(TEXT("R_"));
 		const FLinearColor SkinTint = bOwnPalette ? FLinearColor::White : SQArt::SoftTint(Robe, 0.7f);
-		if (!SkinMID) SkinMID = SQArt::TintMID(this, SQArt::CharacterTexture(SkinModel), SkinTint);
+		// Nov 25 2026 skins: the player's bought skin swaps the palette texture (the whole crew sees it: SkinId replicates);
+		// not imported yet = the standard palette softly tinted toward the skin's colour
+		FLinearColor WearTint = SkinTint;
+		UTexture* WearTex = SQArt::CharacterTexture(SkinModel);
+		const ASQPlayerState* SkinPS = GetPlayerState<ASQPlayerState>();
+		AppliedSkinId = SkinPS ? SkinPS->SkinId : NAME_None;
+		if (const FSQCosmeticDef* SkinDef = AppliedSkinId.IsNone() ? nullptr : SQQuests::FindCosmetic(AppliedSkinId))
+		{
+			if (UTexture* Bought = SQArt::SkinTexture(SkinModel, SkinDef->Tex)) WearTex = Bought;
+			else WearTint = FMath::Lerp(SkinTint, SkinDef->Color, 0.45f);
+		}
+		if (!SkinMID) SkinMID = SQArt::TintMID(this, WearTex, WearTint);
 		else
 		{
-			SkinMID->SetVectorParameterValue(TEXT("Color"), SkinTint);
-			if (UTexture* SkinTex = SQArt::CharacterTexture(SkinModel)) SkinMID->SetTextureParameterValue(TEXT("Tex"), SkinTex);
+			SkinMID->SetVectorParameterValue(TEXT("Color"), WearTint);
+			if (WearTex) SkinMID->SetTextureParameterValue(TEXT("Tex"), WearTex);
 		}
 		SQArt::SetAllMaterials(SkinMesh, SkinMID);
-		SQArt::ApplyGlowSlots(SkinMesh, this, SQArt::CharacterTexture(SkinModel)); // eyes + lantern glow on our own reaper
+		SQArt::ApplyGlowSlots(SkinMesh, this, WearTex); // eyes + lantern glow on our own reaper
 
 		// Weapon in the right hand (reuses the scythe component; a primitive stand-in when the art is missing)
 		if (AccessoryReaper != ReaperId || !bHasWeaponArt) ApplyHeldWeapon(R); // (re)built with a new reaper, skeleton or size
@@ -3420,7 +3444,7 @@ void ASQCharacter::ApplyHeldWeapon(const FSQReaperDef* R)
 		UMaterialInstanceDynamic* WeaponHeadMID = SQArt::TintMID(this, White, bStaff ? SQArt::SoftTint(Robe, 0.8f) : FLinearColor(0.85f, 0.87f, 0.92f));
 		if (WeaponHeadMID && bStaff) WeaponHeadMID->SetScalarParameterValue(TEXT("Glow"), 2.5f);
 
-		ScytheMesh->SetStaticMesh(SQ::Mesh(bBlade ? TEXT("Cube") : TEXT("Cylinder")));
+		ScytheMesh->SetStaticMesh(SQ::Mesh(TEXT("Cylinder"))); // no box shapes on held weapons
 		const FVector ShaftCm = bBlade ? FVector(4.f, 11.f, Len * 0.8f) : FVector(6.f, 6.f, Len);
 		HeldWeaponBaseScale = ShaftCm / 100.f / ParentScale;
 		ScytheMesh->SetRelativeScale3D(HeldWeaponBaseScale);
@@ -3429,7 +3453,7 @@ void ASQCharacter::ApplyHeldWeapon(const FSQReaperDef* R)
 
 		FVector HeadCm;
 		FVector HeadAt;
-		const TCHAR* HeadShape = TEXT("Cube");
+		const TCHAR* HeadShape = TEXT("Cone"); // no box shapes on held weapons
 		if (bBlade) { HeadCm = FVector(6.f, 24.f, 5.f); HeadAt = FVector(0.f, 0.f, Len * 0.1f); }                   // crossguard
 		else if (WeaponName == TEXT("Scythe")) { HeadCm = FVector(4.f, Len * 0.45f, 16.f); HeadAt = FVector(0.f, Len * 0.2f, Len * 0.92f); }
 		else if (WeaponName == TEXT("Axe")) { HeadCm = FVector(6.f, 28.f, 32.f); HeadAt = FVector(0.f, 12.f, Len * 0.82f); }
@@ -3622,7 +3646,7 @@ void ASQCharacter::UpdatePassiveWeaponFx(float DeltaSeconds)
 				UInstancedStaticMeshComponent* NewOrbs = OrbitISMs[Slot];
 				if (!NewOrbs) continue;
 				OrbitISMWeapons[Slot] = Def->Id;
-				const TCHAR* OrbShape = Def->FxStyle == TEXT("Thorns") ? TEXT("Cone") : (Def->FxStyle == TEXT("Crows") ? TEXT("Cube") : TEXT("Sphere"));
+				const TCHAR* OrbShape = Def->FxStyle == TEXT("Thorns") ? TEXT("Cone") : (Def->FxStyle == TEXT("Crows") ? TEXT("Cone") : TEXT("Sphere"));
 				NewOrbs->SetStaticMesh(SQ::Mesh(OrbShape));
 				UTexture* White = LoadObject<UTexture>(nullptr, TEXT("/Engine/EngineResources/WhiteSquareTexture.WhiteSquareTexture"), nullptr, LOAD_NoWarn | LOAD_Quiet);
 				UMaterialInstanceDynamic* OrbMID = SQArt::TintMID(this, White, Def->Color);
@@ -4009,6 +4033,7 @@ void ASQCharacter::ApplyAnimStyle(USQAnimInstance* SkinAnim)
 void ASQCharacter::UpdateLocalVisuals(float DeltaSeconds)
 {
 	VisualTime += DeltaSeconds;
+	if (bHasSkin) RefreshSkinLook(); // a skin (or the player state carrying it) can arrive after the pawn
 
 	// Hit shake on the camera
 	HitFlash = FMath::Max(0.f, HitFlash - DeltaSeconds);

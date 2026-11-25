@@ -178,6 +178,37 @@ public:
 	float LoopDamageMult() const;
 	float LoopEliteMult() const;
 
+	// ---------------- Run structure (Nov 25 2026, Docs/RunStructure.md): a chain of stages, soul rift, passage, endless horde
+	/** 0-based stage of the run and how many stages it has (Tuning RunStages; 1 = the old single mission) */
+	UPROPERTY(Replicated) int32 RunStage = 0;
+	UPROPERTY(Replicated) int32 RunStageCount = 1;
+	/** The next stage's mission name (shown in the passage) */
+	UPROPERTY(Replicated) FString NextStageName;
+	/** > 0 while the last lantern overflows (real seconds until the boss climbs out) */
+	UPROPERTY(Replicated) float OverflowTimeLeft = 0.f;
+	/** The boss's soul rift is open: walk into it */
+	UPROPERTY(Replicated) bool bSoulRift = false;
+	UPROPERTY(Replicated) FVector SoulRiftPos = FVector::ZeroVector;
+	UPROPERTY(Replicated) float SoulRiftTimeLeft = 0.f;
+	UPROPERTY(Replicated) int32 SoulRiftIn = 0;
+	UPROPERTY(Replicated) int32 SoulRiftNeeded = 0;
+	/** In the Soul Passage (falling to the next map) */
+	UPROPERTY(Replicated) bool bSoulPassage = false;
+	UPROPERTY(Replicated) float PassageTimeLeft = 0.f;
+	/** The endless horde after the last boss (until the crew wipes) */
+	UPROPERTY(Replicated) bool bEndlessHorde = false;
+	UPROPERTY(Replicated) float EndlessSeconds = 0.f;
+	UPROPERTY(Replicated) int32 EndlessKills = 0;
+	/** Team kills this run (all stages) and souls banked this run (all stages + endless) */
+	UPROPERTY(Replicated) int32 RunKills = 0;
+	UPROPERTY(Replicated) int32 RunSoulsBanked = 0;
+	/** Drowned King Flood / King Tide: the tide is pushed up by BossTideRise between these server times (ASQArena::TideLevel) */
+	UPROPERTY(Replicated) float BossTideStart = 0.f;
+	UPROPERTY(Replicated) float BossTideEnd = 0.f;
+	UPROPERTY(Replicated) float BossTideRise = 0.f;
+	/** True between stages (rift / passage): no spawns, no stage clock */
+	bool IsBetweenStages() const { return bSoulRift || bSoulPassage; }
+
 	/** True once every objective is resolved: the Appointment Bell is up (or the stage clock ran out) */
 	UPROPERTY(Replicated) bool bBossReady = false;
 

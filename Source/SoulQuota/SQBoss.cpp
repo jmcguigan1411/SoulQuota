@@ -10,6 +10,7 @@
 #include "Animation/AnimSequence.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "GameFramework/PlayerState.h"
+#include "GameFramework/PlayerController.h"
 #include "SQArt.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "EngineUtils.h"
@@ -50,6 +51,18 @@ namespace
 		case ESQBossAbility::Pylons:    Out = { 35.f, 1.2f, 8, FColor(255, 210, 80) }; break;
 		case ESQBossAbility::Tether:    Out = { 22.f, 1.2f, 7, FColor(80, 255, 230) }; break;
 		case ESQBossAbility::Ring:      Out = { 5.f, 0.8f, 2, FColor(255, 100, 60) }; break;
+		// Nov 25 2026 map bosses (SQBossMap.cpp)
+		case ESQBossAbility::TombWall:  Out = { 9.f, 1.1f, 0, FColor(205, 200, 220) }; break;
+		case ESQBossAbility::Burrow:    Out = { 11.f, 0.6f, 6, FColor(170, 110, 60) }; break;
+		case ESQBossAbility::Raise:     Out = { 12.f, 1.2f, 1, FColor(120, 220, 90) }; break;
+		case ESQBossAbility::Cracks:    Out = { 10.f, 0.9f, 0, FColor(255, 110, 40) }; break;
+		case ESQBossAbility::Flood:     Out = { 16.f, 1.0f, 6, FColor(60, 150, 255) }; break;
+		case ESQBossAbility::Tentacles: Out = { 7.f, 1.0f, 2, FColor(40, 210, 200) }; break;
+		case ESQBossAbility::GhostShip: Out = { 14.f, 2.0f, 7, FColor(140, 230, 255) }; break;
+		case ESQBossAbility::KingTide:  Out = { 28.f, 1.5f, 4, FColor(30, 110, 255) }; break;
+		case ESQBossAbility::TimeZones: Out = { 12.f, 0.8f, 7, FColor(255, 215, 90) }; break;
+		case ESQBossAbility::ClockSweep:Out = { 10.f, 1.4f, 6, FColor(255, 185, 60) }; break;
+		case ESQBossAbility::Rewind:    Out = { 25.f, 0.8f, 8, FColor(200, 160, 255) }; break;
 		default: break;
 		}
 		return Out;
@@ -68,6 +81,17 @@ namespace
 		case ESQBossAbility::Pools: return TEXT("POOLS");
 		case ESQBossAbility::Vortex: return TEXT("VORTEX - run out!");
 		case ESQBossAbility::Ring: return TEXT("RING");
+		case ESQBossAbility::TombWall: return TEXT("TOMBSTONE WALL - go round");
+		case ESQBossAbility::Burrow: return TEXT("BURROWING - keep moving!");
+		case ESQBossAbility::Raise: return TEXT("RAISING THE DEAD");
+		case ESQBossAbility::Cracks: return TEXT("THE GROUND CRACKS - step off the lines");
+		case ESQBossAbility::Flood: return TEXT("FLOOD - keep to the causeways");
+		case ESQBossAbility::Tentacles: return TEXT("TENTACLES - change direction!");
+		case ESQBossAbility::GhostShip: return TEXT("GHOST SHIP - leave its lane");
+		case ESQBossAbility::KingTide: return TEXT("KING TIDE - get to high ground!");
+		case ESQBossAbility::TimeZones: return TEXT("TIME ZONES - blue fast, orange slow, white frozen");
+		case ESQBossAbility::ClockSweep: return TEXT("CLOCK HANDS - JUMP!");
+		case ESQBossAbility::Rewind: return TEXT("REWIND - stand on the GEAR!");
 		default: return TEXT("");
 		}
 	}
@@ -210,6 +234,20 @@ ASQBoss::ASQBoss()
 	TetherBeam->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	TetherBeam->SetCastShadow(false);
 	TetherBeam->SetVisibility(false);
+
+	// Nov 25 2026: Merchant clock hands (world space, hidden until a sweep)
+	HandBeam = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HandBeam"));
+	HandBeamTwin = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HandBeamTwin"));
+	for (UStaticMeshComponent* HandComp : { HandBeam.Get(), HandBeamTwin.Get() })
+	{
+		HandComp->SetupAttachment(RootComponent);
+		HandComp->SetUsingAbsoluteLocation(true);
+		HandComp->SetUsingAbsoluteRotation(true);
+		HandComp->SetUsingAbsoluteScale(true);
+		HandComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		HandComp->SetCastShadow(false);
+		HandComp->SetVisibility(false);
+	}
 }
 
 void ASQBoss::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -234,6 +272,20 @@ void ASQBoss::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeP
 	DOREPLIFETIME(ASQBoss, TetherA);
 	DOREPLIFETIME(ASQBoss, TetherB);
 	DOREPLIFETIME(ASQBoss, bStaggered);
+	DOREPLIFETIME(ASQBoss, bBurrowed);
+	DOREPLIFETIME(ASQBoss, ZoneCenters);
+	DOREPLIFETIME(ASQBoss, ZoneKinds);
+	DOREPLIFETIME(ASQBoss, ZonesEndTime);
+	DOREPLIFETIME(ASQBoss, ZoneRadius);
+	DOREPLIFETIME(ASQBoss, bSweep);
+	DOREPLIFETIME(ASQBoss, bSweepTwin);
+	DOREPLIFETIME(ASQBoss, SweepCenter);
+	DOREPLIFETIME(ASQBoss, SweepStartYaw);
+	DOREPLIFETIME(ASQBoss, SweepStartTime);
+	DOREPLIFETIME(ASQBoss, SweepRate);
+	DOREPLIFETIME(ASQBoss, SweepLength);
+	DOREPLIFETIME(ASQBoss, EntranceLeft);
+	DOREPLIFETIME(ASQBoss, EntranceTotal);
 }
 
 void ASQBoss::BeginPlay()
@@ -268,6 +320,14 @@ void ASQBoss::BeginPlay()
 		TetherBeam->SetStaticMesh(SQ::Mesh(TEXT("Cylinder")));
 		TetherMID = SQ::ColorMID(this, FLinearColor(0.3f, 1.f, 0.9f));
 		if (TetherMID) { TetherMID->SetScalarParameterValue(TEXT("Glow"), 2.f); TetherBeam->SetMaterial(0, TetherMID); }
+		HandMID = SQ::ColorMID(this, FLinearColor(1.f, 0.72f, 0.25f));
+		if (HandMID) HandMID->SetScalarParameterValue(TEXT("Glow"), 3.f);
+		for (UStaticMeshComponent* HandComp : { HandBeam.Get(), HandBeamTwin.Get() })
+		{
+			if (!HandComp) continue;
+			HandComp->SetStaticMesh(SQ::Mesh(TEXT("Cylinder")));
+			if (HandMID) HandComp->SetMaterial(0, HandMID);
+		}
 	}
 	ApplyVisuals();
 }
@@ -290,6 +350,14 @@ void ASQBoss::InitBoss(FName InBossId, int32 InDefiance, int32 NumPlayers, float
 	Stage = EStage::Gap;
 	StageTime = 2.5f; // a breath after the intro line
 	FightTime = 0.f;
+	// Nov 25 2026: the boss climbs out of the lantern / the ground first (invulnerable, no abilities while it rises)
+	EntranceTotal = D ? FMath::Clamp(D->Tune(TEXT("BossEntranceSeconds"), 3.f), 0.f, 10.f) : 3.f;
+	EntranceLeft = EntranceTotal;
+	if (EntranceLeft > 0.f)
+	{
+		bInvulnerable = true;
+		MulticastAnim(4);
+	}
 	if (Def && Def->Elements.Num() > 0)
 	{
 		ElementIdx = 0;
@@ -385,6 +453,8 @@ void ASQBoss::ApplyVisuals()
 	const float HalfHeight = GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight();
 	Skin->SetRelativeScale3D(FVector(ArtScale));
 	Skin->SetRelativeLocation(FVector(0.f, 0.f, -HalfHeight - ArtBottom * ArtScale));
+	SkinRestLoc = Skin->GetRelativeLocation();
+	bSkinRestKnown = true;
 	Skin->SetRelativeRotation(FRotator(0.f, SQArt::YawOffset(this), 0.f));
 
 	ArtMID = SQArt::TintMID(this, SQArt::CharacterTexture(), SQArt::SoftTint(Def->Color, 0.6f));
@@ -566,6 +636,9 @@ FColor ASQBoss::AbilityColour(ESQBossAbility Ability) const
 
 FString ASQBoss::GetMechanicHint() const
 {
+	if (EntranceLeft > 0.f) return TEXT("IT RISES...");
+	if (bBurrowed) return TEXT("BURROWING - keep moving, it erupts under you!");
+	if (bSweep) return TEXT("CLOCK HANDS - JUMP them!");
 	if (bInvulnerable) return FString::Printf(TEXT("PHASE %d - it roars (invulnerable)"), Phase + 1);
 	if (bShielded)
 	{
@@ -598,13 +671,22 @@ void ASQBoss::Tick(float DeltaSeconds)
 	const FSQBossDef* Def = D ? D->FindBoss(BossId) : nullptr;
 	const float S = Def ? Def->Scale : 3.f;
 	Body->SetRelativeScale3D(FVector(S * Breath, S * Breath, S / Breath));
+	if (EntranceLeft > 0.f) EntranceLeft = FMath::Max(0.f, EntranceLeft - DeltaSeconds); // every machine eases the rise between updates
 	if (GetNetMode() != NM_DedicatedServer)
 	{
 		if (bArtVisuals) UpdateArtAnim(DeltaSeconds);
 		UpdateMechanicVisuals(DeltaSeconds);
+		UpdateMapVisuals(DeltaSeconds);
 	}
 
 	if (!HasAuthority() || bDead || !Def) return;
+	// Entrance: rising, invulnerable, nothing else yet
+	if (EntranceTotal > 0.f)
+	{
+		if (EntranceLeft > 0.f) return;
+		EntranceTotal = 0.f;
+		bInvulnerable = false;
+	}
 	FightTime += DeltaSeconds;
 
 	ASQGameState* GS = GetWorld()->GetGameState<ASQGameState>();
@@ -631,6 +713,7 @@ void ASQBoss::Tick(float DeltaSeconds)
 
 	ServerPhase(*Def);
 	ServerHazards(DeltaSeconds);
+	TickMapPassives(DeltaSeconds, *Def);
 
 	// Roar (phase change) and stagger (shield broken): no movement, no abilities
 	if (RoarLeft > 0.f)
@@ -774,7 +857,7 @@ ESQBossAbility ASQBoss::PickAbility(const FSQBossDef& Def) const
 	{
 		const int32 Slot = static_cast<int32>(Pick.Ability);
 		float W = Pick.Weight * SQBossElementBias(Element, Pick.Ability);
-		if (Slot >= 0 && Slot < 16 && AbilityCd[Slot] > 0.f) W = 0.f;
+		if (Slot >= 0 && Slot < MaxAbilitySlots && AbilityCd[Slot] > 0.f) W = 0.f;
 		if (Pick.Ability == LastAbility && Pool.Num() > 1) W *= 0.15f;
 		if (Pick.Ability == ESQBossAbility::Summon && Def.SummonId.IsNone()) W = 0.f;
 		Weights.Add(W);
@@ -829,7 +912,7 @@ void ASQBoss::BeginAbility(ESQBossAbility Ability, const FSQBossDef& Def)
 	if (Ability == ESQBossAbility::Summon) Cooldown = Def.SummonCooldown;
 	if (Ability == ESQBossAbility::Ring) Cooldown = Def.RingCooldown;
 	if (Ability == ESQBossAbility::Slam) Cooldown = Def.SlamCooldown;
-	if (Slot >= 0 && Slot < 16) AbilityCd[Slot] = Cooldown * CadenceMult();
+	if (Slot >= 0 && Slot < MaxAbilitySlots) AbilityCd[Slot] = Cooldown * CadenceMult();
 	LastAbility = Ability;
 	ActiveAbility = static_cast<uint8>(Ability);
 	Stage = EStage::Windup;
@@ -958,6 +1041,7 @@ void ASQBoss::BeginAbility(ESQBossAbility Ability, const FSQBossDef& Def)
 		break;
 	}
 	default:
+		BeginMapAbility(Ability, Def, Info.Windup);
 		break;
 	}
 	if (Picked) Victim = Picked;
@@ -1030,6 +1114,7 @@ void ASQBoss::ResolveAbility(const FSQBossDef& Def)
 		GetCharacterMovement()->MaxAcceleration = 20000.f;
 		break;
 	default:
+		ResolveMapAbility(Ability, Def);
 		break;
 	}
 }
@@ -1251,8 +1336,13 @@ bool ASQBoss::TickActiveAbility(float DeltaSeconds, const FSQBossDef& Def)
 		return false;
 	}
 	default:
-		// Slam, Ring, Shockwave, Summon, Pools: done when resolved (their effects run in ServerHazards)
+	{
+		// Nov 25 map abilities run in SQBossMap.cpp; Slam, Ring, Shockwave, Summon, Pools: done when resolved (ServerHazards)
+		bool bMapHandled = false;
+		const bool bMapDone = TickMapAbility(Ability, DeltaSeconds, Def, bMapHandled);
+		if (bMapHandled) return bMapDone;
 		return ActiveTime >= 0.4f;
+	}
 	}
 }
 
@@ -1283,6 +1373,19 @@ void ASQBoss::ClearMechanics()
 	ShieldProgress = 0.f;
 	GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
 	GetCharacterMovement()->MaxAcceleration = BaseAccel;
+	// Map mechanics: back above ground, zones / hands / ships gone
+	if (bBurrowed)
+	{
+		bBurrowed = false;
+		SetActorEnableCollision(true);
+		if (EntranceLeft <= 0.f) bInvulnerable = false;
+	}
+	bSweep = false;
+	bSweepTwin = false;
+	ZoneCenters.Reset();
+	ZoneKinds.Reset();
+	Ships.Reset();
+	RaiseSpots.Reset();
 }
 
 void ASQBoss::ServerHazards(float DeltaSeconds)
@@ -1327,9 +1430,28 @@ void ASQBoss::ServerHazards(float DeltaSeconds)
 		{
 			for (TActorIterator<ASQCharacter> It(GetWorld()); It; ++It)
 			{
-				if (!It->bDowned && FVector::Dist2D(It->GetActorLocation(), Strike.Center) <= Strike.Radius) It->ApplyHit(Strike.Damage);
+				if (It->bDowned || FVector::Dist2D(It->GetActorLocation(), Strike.Center) > Strike.Radius) continue;
+				It->ApplyHit(Strike.Damage);
+				if (Strike.Knock > 0.f)
+				{
+					FVector Out = (It->GetActorLocation() - Strike.Center).GetSafeNormal2D();
+					if (Out.IsNearlyZero()) Out = FVector(1.f, 0.f, 0.f);
+					It->LaunchCharacter(Out * Strike.Knock + FVector(0.f, 0.f, Strike.Knock * 0.5f), true, true);
+				}
 			}
-			MulticastFX(0, Strike.Center, Strike.Radius, Strike.Colour, 0.25f);
+			// Map bosses: a tall burst column (reads from the chase camera); the old flat burst otherwise
+			MulticastFX(Strike.PitSeconds > 0.f || Strike.Knock > 0.f ? 11 : 0, Strike.Center, Strike.Radius, Strike.Colour, 0.25f);
+			if (Strike.PitSeconds > 0.f)
+			{
+				FBossHazard Pit;
+				Pit.Center = Strike.Center;
+				Pit.Radius = Strike.Radius;
+				Pit.TimeLeft = Strike.PitSeconds;
+				Pit.Dps = Def->RingDamage * 0.7f * Dmg;
+				Pit.bWall = Strike.bWallPost;
+				Hazards.Add(Pit);
+				MulticastFX(Strike.bWallPost ? 13 : 1, Pit.Center, Pit.Radius, Strike.Colour, Pit.TimeLeft);
+			}
 		}
 		else
 		{
@@ -1357,7 +1479,17 @@ void ASQBoss::ServerHazards(float DeltaSeconds)
 		if (!bHazardTick) continue;
 		for (TActorIterator<ASQCharacter> It(GetWorld()); It; ++It)
 		{
-			if (!It->bDowned && FVector::Dist2D(It->GetActorLocation(), Pool.Center) <= Pool.Radius) It->ApplyHit(Pool.Dps * 0.5f);
+			if (It->bDowned || FVector::Dist2D(It->GetActorLocation(), Pool.Center) > Pool.Radius) continue;
+			if (Pool.bWall)
+			{
+				// A tombstone post: shoved back out (a wall to go round), a light knock rather than a burn
+				FVector Out = (It->GetActorLocation() - Pool.Center).GetSafeNormal2D();
+				if (Out.IsNearlyZero()) Out = FVector(1.f, 0.f, 0.f);
+				It->LaunchCharacter(Out * 700.f, true, false);
+				It->ApplyHit(Pool.Dps * 0.25f);
+				continue;
+			}
+			It->ApplyHit(Pool.Dps * 0.5f);
 		}
 	}
 
@@ -1504,7 +1636,7 @@ void ASQBoss::UpdateMechanicVisuals(float DeltaSeconds)
 
 void ASQBoss::TakeBossDamage(float Damage, ASQCharacter* By)
 {
-	if (!HasAuthority() || bDead || bInvulnerable) return;
+	if (!HasAuthority() || bDead || bInvulnerable || bBurrowed) return;
 	if (bShielded) Damage *= 0.1f;
 	if (bStaggered) Damage *= 1.5f;
 	Health -= Damage;
@@ -1514,7 +1646,7 @@ void ASQBoss::TakeBossDamage(float Damage, ASQCharacter* By)
 		bDead = true;
 		ClearMechanics();
 		const FVector L = GetActorLocation();
-		MulticastFX(0, FVector(L.X, L.Y, ASQArena::GroundZAt(this, static_cast<float>(L.X), static_cast<float>(L.Y)) + 5.f), 900.f, FColor(255, 230, 150), 0.8f);
+		MulticastFX(15, FVector(L.X, L.Y, ASQArena::GroundZAt(this, static_cast<float>(L.X), static_cast<float>(L.Y)) + 5.f), 900.f, FColor(255, 230, 150), 0.8f);
 		MulticastAnim(3);
 
 		// Tuning log: time-to-kill against the boss's target (aim for 2-4 minutes, not a bullet sponge)
@@ -1537,7 +1669,56 @@ void ASQBoss::TakeBossDamage(float Damage, ASQCharacter* By)
 void ASQBoss::MulticastFX_Implementation(uint8 Kind, FVector_NetQuantize Location, float Radius, FColor Color, float Duration)
 {
 	if (GetNetMode() == NM_DedicatedServer) return;
-	ASQFx::Spawn(GetWorld(), Kind, Location, Radius, FLinearColor(Color), Duration);
+	UWorld* FxWorld = GetWorld();
+	const FLinearColor Lin(Color);
+	if (Kind >= 10)
+	{
+		// Nov 25 2026 map-boss kinds: vertical pieces that read from the chase camera (FX lesson: flat ground lines vanish)
+		const FVector Up(0.f, 0.f, 1.f);
+		switch (Kind)
+		{
+		case 10: // telegraph disc + a warning pillar that stands until it lands
+			ASQFx::Spawn(FxWorld, 1, Location, Radius, Lin, Duration);
+			SQFx::Streak(FxWorld, Location, Location + Up * FMath::Clamp(Radius * 3.f, 250.f, 900.f), Lin, FMath::Clamp(Radius * 0.18f, 18.f, 70.f), Duration);
+			break;
+		case 11: // impact column
+			ASQFx::Spawn(FxWorld, 0, Location, Radius, Lin, Duration);
+			SQFx::Streak(FxWorld, Location, Location + Up * FMath::Clamp(Radius * 4.f, 400.f, 1400.f), FMath::Lerp(Lin, FLinearColor::White, 0.4f), FMath::Clamp(Radius * 0.35f, 30.f, 160.f), 0.35f);
+			SQFx::Burst(FxWorld, Location + Up * 60.f, Lin, 10, 500.f, 0.6f, 14.f);
+			break;
+		case 12: // ghost ship: glowing hull and mast, sails, spray
+			SQFx::Flash(FxWorld, Location + Up * 120.f, Lin, Radius * 1.6f, 0.2f);
+			SQFx::Streak(FxWorld, Location, Location + Up * 700.f, Lin, 40.f, 0.22f);
+			SQFx::Burst(FxWorld, Location + Up * 40.f, FLinearColor(0.7f, 0.95f, 1.f), 4, 300.f, 0.5f, 10.f);
+			break;
+		case 13: // tombstone post standing for Duration
+			ASQFx::Spawn(FxWorld, 1, Location, Radius, Lin, Duration);
+			SQFx::Streak(FxWorld, Location, Location + Up * 260.f, FLinearColor(0.75f, 0.74f, 0.8f), Radius * 0.9f, Duration);
+			break;
+		case 14: // a warning line: telegraph discs along it are sent separately; this is the glowing spine
+			SQFx::Flash(FxWorld, Location, Lin, 160.f, Duration);
+			break;
+		case 15: // boss death: a huge column of light, rings and a local camera beat (no slow motion: co-op)
+		{
+			ASQFx::Spawn(FxWorld, 0, Location, Radius, Lin, Duration);
+			SQFx::Streak(FxWorld, Location, Location + Up * 3000.f, FLinearColor(0.6f, 1.f, 0.95f), 260.f, 1.2f);
+			SQFx::Shockwave(FxWorld, Location + Up * 20.f, Radius * 2.5f, FLinearColor(0.45f, 1.f, 0.9f), 1.2f, 80.f);
+			SQFx::Burst(FxWorld, Location + Up * 200.f, FLinearColor(0.45f, 1.f, 0.9f), 40, 1200.f, 1.4f, 26.f);
+			APlayerController* LocalPC = FxWorld ? FxWorld->GetFirstPlayerController() : nullptr;
+			if (ASQCharacter* Mine = LocalPC ? Cast<ASQCharacter>(LocalPC->GetPawn()) : nullptr) Mine->NudgeCamera(0.5f);
+			if (USoundBase* S = SQ::Sound(TEXT("Slam"))) UGameplayStatics::PlaySoundAtLocation(this, S, Location, 1.f, 0.6f);
+			break;
+		}
+		default:
+			break;
+		}
+		if (Kind == 11)
+		{
+			if (USoundBase* S = SQ::Sound(TEXT("Slam"))) UGameplayStatics::PlaySoundAtLocation(this, S, Location, 0.8f, FMath::FRandRange(0.9f, 1.1f));
+		}
+		return;
+	}
+	ASQFx::Spawn(FxWorld, Kind, Location, Radius, Lin, Duration);
 	if (Kind == 0)
 	{
 		if (USoundBase* S = SQ::Sound(TEXT("Slam"))) UGameplayStatics::PlaySoundAtLocation(this, S, Location, 1.f, FMath::FRandRange(0.9f, 1.1f));

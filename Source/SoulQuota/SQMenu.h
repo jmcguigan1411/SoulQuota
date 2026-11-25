@@ -59,7 +59,9 @@ enum class ESQMenuPage : uint8
 	Quests,
 	/** Nov 9: mission select (map cards, hard mode) and the permanent upgrade shop */
 	Missions,
-	Upgrades
+	Upgrades,
+	/** Nov 25 2026: skins bought with banked souls */
+	Skins
 };
 
 UCLASS()
@@ -146,6 +148,8 @@ private:
 	void DrawMissionsPage();
 	/** UPGRADES: Death's Office permanent upgrades (USQMissions::GetMetaUpgradeList / BuyMetaUpgrade) */
 	void DrawUpgradesPage();
+	/** Nov 25 2026: SKINS page (souls bank shop, preview on the showroom reaper) */
+	void DrawSkinsPage();
 	void DrawQuitConfirm();
 	void DrawBottomBar();
 	void DrawToast();
@@ -229,6 +233,8 @@ private:
 
 	// main page
 	int32 MainFocus = 0;
+	/** Nov 25 2026 SKINS page: the reaper being dressed */
+	FName SkinsReaper;
 	float MainSlide[10] = {};
 	int32 NoteFocus = -1;
 	float NoteFocusTime = 0.f;

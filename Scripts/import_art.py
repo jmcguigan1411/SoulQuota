@@ -634,6 +634,12 @@ def main():
         for model, png in MODEL_TEXTURES.items():
             if os.path.isfile(os.path.join(CHAR_DIR, png)):
                 safe(import_texture, os.path.join(CHAR_DIR, png), "T_" + model, True)
+        # Nov 25 2026 skins (Scripts/make_skins.py): ArtSource/Characters/skins/R_<Id>_<Theme>.png -> T_R_<Id>_<Theme> (SQArt::SkinTexture)
+        skin_dir = os.path.join(CHAR_DIR, "skins")
+        if os.path.isdir(skin_dir):
+            for f in sorted(os.listdir(skin_dir)):
+                if f.lower().endswith(".png"):
+                    safe(import_texture, os.path.join(skin_dir, f), "T_" + os.path.splitext(f)[0], True)
         safe(make_tint_material, t_skel)
 
         for m in MODELS:
@@ -656,6 +662,8 @@ def main():
         # lantern arch / tree, bunting, podium, wreck, stilt house, boat, clock wall, gear bridge, pendulum, pipes...)
         # and the KayKit atlases recoloured per map (blender_work/mapq/retint.py), used by ASQArena::BuildScenery
         safe(import_park, "Fair_", "fair_palette.png", "T_Fair", "MI_Fair")
+        # Nov 25 2026: the bone chest (Chest_Bone body + Chest_BoneLid hinged lid, blender_work/chest/chest_build.py), used by ASQChest
+        safe(import_park, "Chest_", "chest_palette.png", "T_Chest", "MI_Chest", True)
         for pack in ("KitM", "KitD"):
             for scheme in ("Graveyard", "Harbour", "Clock"):
                 png = os.path.join(PROP_DIR, "%s_%s.png" % (pack.lower(), scheme.lower()))

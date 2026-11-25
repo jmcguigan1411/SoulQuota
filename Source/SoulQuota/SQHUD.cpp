@@ -871,6 +871,7 @@ void ASQHUD::DrawHUD()
 			DrawMinimap(GS, C, D, bShop);
 			DrawDistrictBanner(GS, C);
 			StackY = DrawTopCentre(GS, D) + 12.f;
+			StackY = DrawRunOverlay(GS, C, StackY);
 			if (GS->Phase == ESQPhase::Night && GS->LoopChoiceTimeLeft > 0.f) DrawLoopChoice(GS, D);
 			else { LoopChoiceShownAt = -1.f; bLoopChoiceSent = false; LoopHoldFor[0] = LoopHoldFor[1] = 0.f; }
 			if (GS->Phase == ESQPhase::Night || GS->Phase == ESQPhase::Boss)
@@ -2498,7 +2499,40 @@ void ASQHUD::DrawLobby(const ASQGameState* GS, const ASQPlayerState* PS, const A
 	{
 		const float LX = Margin - SlideL;
 		const float KitBottom = DrawKitPanel(FocusDef, D, LX, TopH + 4.f, LeftW, Accent);
-		DrawStatBars(FocusDef, D, LX, KitBottom + 16.f, LeftW, Accent);
+		const float StatsBottom = DrawStatBars(FocusDef, D, LX, KitBottom + 16.f, LeftW, Accent);
+		// Nov 25 2026 skins: what your reaper wears; K (or a click here) cycles the skins you own for it
+		ASQPlayerState* SkinPS = PlayerOwner ? PlayerOwner->GetPlayerState<ASQPlayerState>() : nullptr;
+		USQSaveGame* SkinSave = USQSaveGame::Load();
+		if (SkinPS && SkinSave && FocusDef && FocusDef->Id == SkinPS->ReaperId)
+		{
+			TArray<const FSQCosmeticDef*> MySkins;
+			SQQuests::SkinsFor(SkinPS->ReaperId, MySkins);
+			TArray<FName> Ring;
+			Ring.Add(NAME_None);
+			for (const FSQCosmeticDef* Each : MySkins)
+			{
+				if (SkinSave->SkinsOwned.Contains(Each->Id)) Ring.Add(Each->Id);
+			}
+			const FName WornSkin = SQQuests::EquippedSkin(SkinSave, SkinPS->ReaperId);
+			const FSQCosmeticDef* WornDef = WornSkin.IsNone() ? nullptr : SQQuests::FindCosmetic(WornSkin);
+			const float RowY = StatsBottom + 12.f;
+			const FString SkinLine = FString::Printf(TEXT("SKIN: %s"), WornDef ? *WornDef->Name.ToUpper() : TEXT("STANDARD"));
+			HudTxt(SkinLine, HudHeadFont(), 16.f, LX + 6.f, RowY, WornDef ? WornDef->Color : SQUI::BoneWhite);
+			HudTxt(Ring.Num() > 1 ? FString(TEXT("K / click: change skin")) : FString::Printf(TEXT("Buy skins with banked souls: main menu SKINS (%d souls)"), SkinSave->SoulBank),
+				HudLabelFont(true), 11.f, LX + 6.f, RowY + 22.f, SQUI::Muted, 0, false);
+			float SkinMX = 0.f, SkinMY = 0.f;
+			const bool bOverSkin = HudMouseDesign(SkinMX, SkinMY) && SkinMX >= LX && SkinMX <= LX + LeftW && SkinMY >= RowY && SkinMY <= RowY + 40.f;
+			const bool bCycle = (PlayerOwner->WasInputKeyJustPressed(EKeys::K)) || (bOverSkin && bLobbyClick);
+			if (bCycle && Ring.Num() > 1)
+			{
+				const int32 At = FMath::Max(0, Ring.IndexOfByKey(WornSkin));
+				SkinSave->SkinsEquipped.Add(SkinPS->ReaperId, Ring[(At + 1) % Ring.Num()]);
+				USQSaveGame::Store(SkinSave);
+				SkinPS->SendSkins();
+				Play(TEXT("Soul"), 0.25f, 0.f);
+				if (bOverSkin) bLobbyClick = false;
+			}
+		}
 	}
 
 	// ---- right: mission, crew, READY
@@ -3806,6 +3840,8 @@ float ASQHUD::DrawTopCentre(const ASQGameState* GS, const USQData* D)
 	const float Beat = HudPulse(HudNow, 8.f);
 
 	FString Label = GS->MissionId.IsNone() ? FString(TEXT("MISSION")) : HudPretty(GS->MissionId).ToUpper();
+	// Nov 25 2026 run structure: STAGE n / N in front of the map's name
+	if (GS->RunStageCount > 1 && GS->LoopIndex == 0) Label = FString::Printf(TEXT("STAGE %d / %d  -  %s"), GS->RunStage + 1, GS->RunStageCount, *Label);
 	// The Long Haunt: the loop number (and the returning boss's twist) replace the mission name
 	if (GS->LoopIndex > 0)
 	{
@@ -3816,7 +3852,36 @@ float ASQHUD::DrawTopCentre(const ASQGameState* GS, const USQData* D)
 	float Frac = -1.f;
 	FLinearColor BigCol = SQUI::BoneWhite;
 	FLinearColor Edge = GS->bHardMode ? SQUI::WithAlpha(SQUI::Danger, 0.8f) : SQUI::Line;
-	if (bShopPhase)
+	if (bNight && GS->bEndlessHorde)
+	{
+		const int32 Secs = FMath::FloorToInt(GS->EndlessSeconds);
+		Label = TEXT("THE ENDLESS HORDE");
+		Big = FString::Printf(TEXT("%d:%02d"), Secs / 60, Secs % 60);
+		Small = FString::Printf(TEXT("%d KILLS"), GS->EndlessKills);
+		BigCol = FMath::Lerp(SQUI::Danger, SQUI::BoneWhite, 0.4f + 0.2f * Beat);
+		Edge = SQUI::Danger;
+	}
+	else if (bNight && GS->bSoulRift)
+	{
+		Label = TEXT("THE SOUL RIFT");
+		Big = FString::Printf(TEXT("%d / %d IN"), GS->SoulRiftIn, GS->SoulRiftNeeded);
+		Small = FString::Printf(TEXT("%ds"), FMath::CeilToInt(GS->SoulRiftTimeLeft));
+		BigCol = SQUI::Soul;
+	}
+	else if (bNight && GS->bSoulPassage)
+	{
+		Label = TEXT("THE SOUL PASSAGE");
+		Big = FString::Printf(TEXT("%ds"), FMath::CeilToInt(GS->PassageTimeLeft));
+		Small = GS->NextStageName.IsEmpty() ? FString() : FString::Printf(TEXT("TO %s"), *GS->NextStageName.ToUpper());
+		BigCol = SQUI::Soul;
+	}
+	else if (bNight && GS->OverflowTimeLeft > 0.f)
+	{
+		Big = TEXT("IT RISES");
+		BigCol = FMath::Lerp(SQUI::Danger, SQUI::BoneWhite, Beat);
+		Edge = SQUI::Danger;
+	}
+	else if (bShopPhase)
 	{
 		Label = TEXT("DEATH'S OFFICE");
 		Big = FString::Printf(TEXT("%ds"), FMath::Max(0, FMath::CeilToInt(GS->PhaseTimeLeft)));
@@ -3895,6 +3960,56 @@ float ASQHUD::DrawTopCentre(const ASQGameState* GS, const USQData* D)
 		Bottom = DrawBossBar(GS, D, Bottom + 10.f);
 	}
 	return Bottom;
+}
+
+float ASQHUD::DrawRunOverlay(const ASQGameState* GS, const ASQCharacter* C, float Y)
+{
+	if (!GS || GS->Phase != ESQPhase::Night) return Y;
+	const float Beat = HudPulse(HudNow, 6.f);
+	const float CX = HudVW * 0.5f;
+	if (GS->OverflowTimeLeft > 0.f)
+	{
+		// THE LANTERN OVERFLOWS: a big red callout (the boss climbs out when the count ends)
+		const FString Title = TEXT("THE LANTERN OVERFLOWS");
+		HudGlowTxt(Title, HudDisplayFont(), 44.f, CX, HudVH * 0.30f, FMath::Lerp(SQUI::Danger, SQUI::BoneWhite, 0.25f * Beat), SQUI::WithAlpha(SQUI::Danger, 0.8f), 1);
+		HudTxt(TEXT("Something is climbing out. Get ready."), HudLabelFont(true), 18.f, CX, HudVH * 0.30f + 54.f, SQUI::BoneWhite, 1);
+		return Y;
+	}
+	if (GS->bEndlessHorde)
+	{
+		// The big kill counter and souls banked under the clock
+		const FString Kills = FString::Printf(TEXT("%d"), GS->EndlessKills);
+		HudGlowTxt(Kills, HudDisplayFont(), 46.f, CX, Y, SQUI::BoneWhite, SQUI::WithAlpha(SQUI::Danger, 0.6f), 1);
+		HudTxt(FString::Printf(TEXT("KILLS IN THE HORDE   -   %d SOULS BANKED THIS RUN"), GS->RunSoulsBanked), HudLabelFont(true), 13.f, CX, Y + 50.f, SQUI::Muted, 1);
+		return Y + 74.f;
+	}
+	if (GS->bSoulRift)
+	{
+		// A marker on the rift and the prompt
+		const FVector Screen = Canvas->Project(GS->SoulRiftPos + FVector(0.f, 0.f, 420.f));
+		if (Screen.Z > 0.f && Screen.X >= 0.f && Screen.Y >= 0.f && Screen.X <= Canvas->ClipX && Screen.Y <= Canvas->ClipY)
+		{
+			const float SX = static_cast<float>(Screen.X) / UIScale, SY = static_cast<float>(Screen.Y) / UIScale;
+			HudDisc(SQUI::WithAlpha(SQUI::Soul, 0.35f + 0.3f * Beat), SX, SY, 18.f + 6.f * Beat);
+			HudTxt(TEXT("SOUL RIFT"), HudLabelFont(true), 14.f, SX, SY - 40.f, SQUI::Soul, 1);
+		}
+		HudGlowTxt(TEXT("WALK INTO THE SOUL RIFT"), HudHeadFont(), 26.f, CX, HudVH * 0.72f, SQUI::Soul, SQUI::WithAlpha(SQUI::Soul, 0.5f), 1);
+		HudTxt(FString::Printf(TEXT("It leads down to %s.  Everyone in, or %ds and you are pulled through."), *GS->NextStageName, FMath::CeilToInt(GS->SoulRiftTimeLeft)),
+			HudLabelFont(true), 15.f, CX, HudVH * 0.72f + 34.f, SQUI::BoneWhite, 1);
+		return Y;
+	}
+	if (GS->bSoulPassage)
+	{
+		HudGlowTxt(TEXT("THE SOUL PASSAGE"), HudDisplayFont(), 40.f, CX, HudVH * 0.20f, SQUI::Soul, SQUI::WithAlpha(SQUI::Soul, 0.5f), 1);
+		HudTxt(FString::Printf(TEXT("Falling to %s.  Pick your augment, then spend gold at the floating chests."), *GS->NextStageName), HudLabelFont(true), 16.f, CX, HudVH * 0.20f + 50.f, SQUI::BoneWhite, 1);
+		const APlayerController* LocalPC = GetOwningPlayerController();
+		if (LocalPC && LocalPC->HasAuthority())
+		{
+			HudTxt(TEXT("Host: interact away from the chests to drop now"), HudLabelFont(false), 13.f, CX, HudVH * 0.20f + 74.f, SQUI::Muted, 1);
+		}
+		return Y;
+	}
+	return Y;
 }
 
 float ASQHUD::DrawBossBar(const ASQGameState* GS, const USQData* D, float Y)
@@ -4861,7 +4976,8 @@ void ASQHUD::DrawEndScreen(const ASQGameState* GS, const ASQPlayerState* PS)
 	// title
 	const float TitleIn = HudBackOut((Elapsed - 0.15f) / 0.6f);
 	HudAlpha = HudEaseOut((Elapsed - 0.15f) / 0.3f);
-	const FString Title = bWon ? FString(TEXT("MISSION COMPLETE")) : FString(TEXT("MISSION FAILED"));
+	// Nov 25 2026: a full run ends in the endless horde (always a win); a chain run that falls earlier shows how far it got
+	const FString Title = GS->RunStats.bEndless ? FString(TEXT("THE HORDE TOOK YOU")) : (bWon ? FString(TEXT("MISSION COMPLETE")) : FString(TEXT("MISSION FAILED")));
 	const float TitlePx = HudFitPx(Title, HudDisplayFont(), 110.f, VW - 120.f) * (1.3f - 0.3f * TitleIn);
 	const float TitleY = VH * 0.16f;
 	HudGlowTxt(Title, HudDisplayFont(), TitlePx, VW * 0.5f, TitleY - 0.62f * TitlePx, Accent, Accent, 1);
@@ -4874,6 +4990,10 @@ void ASQHUD::DrawEndScreen(const ASQGameState* GS, const ASQPlayerState* PS)
 	if (GS->RunStats.Loops > 0)
 	{
 		Sub += FString::Printf(TEXT("%s%s HAUNT %d  (+%d GOLD)"), Sub.IsEmpty() ? TEXT("") : TEXT("  -  "), GS->RunStats.bDiedInLoop ? TEXT("FELL ON") : TEXT("CASHED OUT AFTER"), GS->RunStats.Loops, GS->RunStats.LoopBonusGold);
+	}
+	if (GS->RunStats.StageCount > 1)
+	{
+		Sub = FString::Printf(TEXT("%d / %d STAGES CLEARED%s"), GS->RunStats.StagesCleared, GS->RunStats.StageCount, GS->bHardMode ? TEXT("  -  HARD MODE") : TEXT(""));
 	}
 	if (Sub.IsEmpty())
 	{
@@ -4944,6 +5064,16 @@ void ASQHUD::DrawEndScreen(const ASQGameState* GS, const ASQPlayerState* PS)
 	else
 	{
 		Tiles.Add({ FString::Printf(TEXT("%d/%d"), GS->Banked, GS->Quota), TEXT("SOULS BANKED"), SQUI::Amber });
+	}
+	// Nov 25 2026 run structure: the endless horde's time and kills, and the souls this run put into your soul bank
+	if (bHaveStats && Stats.bEndless)
+	{
+		Tiles.Add({ HudTimeText(Stats.EndlessSeconds), TEXT("IN THE HORDE"), SQUI::Danger });
+		Tiles.Add({ FString::FromInt(Stats.EndlessKills), TEXT("HORDE KILLS"), SQUI::Danger });
+	}
+	if (bHaveStats && Stats.StageCount > 1)
+	{
+		Tiles.Add({ FString::FromInt(PS ? PS->RunSoulsBanked : Stats.SoulsBanked), TEXT("SOULS TO YOUR BANK"), SQUI::Soul });
 	}
 	Tiles.Add({ FString::FromInt(GS->TeamLevel), TEXT("TEAM LEVEL"), SQUI::Soul });
 	Tiles.Add({ FString::FromInt(PS ? PS->Kills : 0), TEXT("YOUR KILLS"), SQUI::Danger });
@@ -6099,7 +6229,9 @@ void ASQHUD::DrawMinimap(const ASQGameState* GS, const ASQCharacter* C, const US
 
 	// --- Corner minimap: a window round your reaper (Tuning MinimapRange = cm from the centre to an edge)
 	const float Margin = 24.f;
-	const float S = D ? FMath::Clamp(D->Tune(TEXT("MinimapSize"), 230.f), 120.f, 420.f) : 230.f;
+	const USQSaveGame* MapSave = USQSaveGame::Load();
+	const float MapScale = MapSave ? FMath::Clamp(MapSave->MinimapScale, SQSettings::MinimapScaleMin, SQSettings::MinimapScaleMax) : 1.f; // SETTINGS > GAMEPLAY > Minimap size
+	const float S = (D ? FMath::Clamp(D->Tune(TEXT("MinimapSize"), 230.f), 120.f, 420.f) : 230.f) * MapScale;
 	const float RangeCm = D ? FMath::Clamp(D->Tune(TEXT("MinimapRange"), 5500.f), 1500.f, MinimapHalf) : 5500.f;
 	const float MX = HudVW - Margin - S;
 	const float MY = HudVH - Margin - S - (bShop ? 0.f : 18.f) - ((MapPC && MapPC->bShowStats) ? 44.f : 0.f); // clear of the debug lines

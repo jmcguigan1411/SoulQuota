@@ -123,6 +123,13 @@ namespace SQArt
 		return Character(FName(TEXT("Mage"))) ? FName(TEXT("Mage")) : Model;
 	}
 
+	UTexture* SkinTexture(FName Model, const FString& Tex)
+	{
+		if (Model.IsNone() || Tex.IsEmpty()) return nullptr;
+		const FString TexName = FString::Printf(TEXT("T_%s_%s"), *Model.ToString(), *Tex);
+		return LoadCached<UTexture>(AssetPath(TEXT("/Game/Art/Textures"), TexName));
+	}
+
 	UTexture* CharacterTexture(FName Model)
 	{
 		// A model's own palette (T_<Model>, next to its mesh or in Art/Textures: T_Reaper, T_Zombie, T_Gravebat...),

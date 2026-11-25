@@ -108,6 +108,19 @@ public:
 	UPROPERTY() int32 DailyRuns = 0;
 	/** Cosmetics.csv ids earned from quests, and the one equipped per Kind (none = the standard look) */
 	UPROPERTY() TArray<FName> CosmeticsOwned;
+	// ---- Run structure (Nov 25 2026, Docs/RunStructure.md): souls are the second meta currency (skins); endless records
+	/** Souls banked across every run, not yet spent (the SKINS shop currency) */
+	UPROPERTY() int32 SoulBank = 0;
+	/** Souls banked across every run, ever (spent or not) */
+	UPROPERTY() int32 SoulsEarnedTotal = 0;
+	/** Cosmetics.csv Kind Skin ids bought, and the one worn per reaper (Reapers.csv id -> skin id; none = standard) */
+	UPROPERTY() TArray<FName> SkinsOwned;
+	UPROPERTY() TMap<FName, FName> SkinsEquipped;
+	/** Endless horde records: best survival (s) and kills overall, best kills per reaper, full clears (every stage boss) */
+	UPROPERTY() float EndlessBestSeconds = 0.f;
+	UPROPERTY() int32 EndlessBestKills = 0;
+	UPROPERTY() TMap<FName, int32> EndlessBestKillsByReaper;
+	UPROPERTY() int32 RunsFullCleared = 0;
 	UPROPERTY() TMap<FName, FName> CosmeticsEquipped;
 	int32 LoopBest(FName MissionId) const { const int32* Found = LoopBestByMission.Find(MissionId); return Found ? *Found : 0; }
 	/** The mission the next hosted run starts with (USQMissions::SetPendingMission from the menu; none = the first unlocked one) */
@@ -132,6 +145,12 @@ public:
 	UPROPERTY() bool bShapeCues = false;
 	/** Smaller hit flashes and no full-screen flashes */
 	UPROPERTY() bool bReduceFlash = false;
+	/** Nov 25 2026: colour-blind filter for the whole game window (Slate colour-vision correction): 0 OFF, 1 PROTAN, 2 DEUTAN, 3 TRITAN */
+	UPROPERTY() uint8 ColourBlindMode = 0;
+	/** Strength of that filter, 0..1 */
+	UPROPERTY() float ColourBlindStrength = 1.f;
+	/** Nov 25 2026: corner minimap size multiplier (SQSettings::MinimapScaleMin..Max) */
+	UPROPERTY() float MinimapScale = 1.f;
 	/** Rebinds: SQInput action id -> key name (only changed ones are stored; missing = the default) */
 	UPROPERTY() TMap<FName, FName> KeyBinds;
 	UPROPERTY() TMap<FName, FName> PadBinds;
@@ -197,6 +216,8 @@ namespace SQSettings
 	constexpr float DeadMax = 0.5f;
 	constexpr float HudScaleMin = 0.8f;
 	constexpr float HudScaleMax = 1.35f;
+	constexpr float MinimapScaleMin = 0.75f;
+	constexpr float MinimapScaleMax = 2.f;
 	constexpr float ResScaleMin = 0.5f;
 	// 3 = platform pass (Nov 23 2026): graphics / controller / accessibility rows; older profiles get their defaults
 	constexpr int32 Version = 3;

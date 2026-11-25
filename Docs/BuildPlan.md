@@ -326,3 +326,15 @@ Details in Docs/Content.md and Docs/Pricing.md. Not compiled or played in Unreal
 - [ ] Signature-weapon balance pass (kits still outside the band: see Docs/Characters.md, Balance)
 - [ ] Voice: record the bark lines in Docs/Characters.md
 - [ ] Real per-character rigs for the quadruped / floating plans (werewolf on all fours, horseman's steed) - beyond bone scaling
+
+## Run structure (Nov 25 2026, Docs/RunStructure.md)
+- [x] 3-stage run in one level (Graveyard -> Drowned Harbour -> Clocktower), level / items / gold carry over, Difficulty step per stage
+- [x] Boss climbs out of the last lantern after an overflow warning; objectives are bonuses (bell behind BossFromLantern 0)
+- [x] Map boss move sets: Gravekeeper (tomb walls, burrow, raise, cracks), Drowned King (flood, tentacles, ghost ship, king tide), Merchant (time zones, clock hands, rewind + gear)
+- [x] Soul rift + Soul Passage (augment pick, floating chests, host can drop early)
+- [x] Endless horde after the last boss with kills / time / souls on the HUD and records; Long Haunt switched off
+- [x] Souls bank (second meta currency) + SKINS page, 63 skins, lobby skin cycling, skins replicate to the crew
+- [ ] Compile + playtest the run chain (boss TTK flags in Docs/RunStructure.md, rift/passage feel, endless pacing)
+- [ ] 5 stages: two more maps (Missions.csv rows + biomes), then Tuning RunStages 5
+- [ ] Passage camera looking down (currently the normal chase camera inside the tunnel)
+- [ ] Bespoke boss models / animations for the three map bosses (they use the KayKit bodies with props)

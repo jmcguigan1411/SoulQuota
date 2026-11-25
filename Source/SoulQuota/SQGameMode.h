@@ -115,6 +115,39 @@ protected:
 	/** True once the mission boss has fallen this run: from then on the run counts as won however it ends */
 	bool bLoopVictoryLocked = false;
 
+	// ---- Run structure (Nov 25 2026, Docs/RunStructure.md): stage chain, overflow, soul rift, passage, endless horde
+	/** Missions.csv ids of this run's stages, in order */
+	TArray<FName> StageChain;
+	/** Tuning BossFromLantern on and the stage has a trail: the boss climbs out of the last lantern (no bell) */
+	bool UseLanternBoss() const;
+	/** The last lantern is filled (or burnt out): the overflow warning, then the boss */
+	void BeginOverflow();
+	/** The stage boss fell and another stage follows: its soul rift opens where it died */
+	void BeginSoulRift(const FVector& BossAt);
+	void TickSoulRift(ASQGameState* GS, const USQData* D, float DeltaSeconds);
+	/** A reaper walks into the rift (or is pulled in): it drops into the passage tunnel to wait for the crew */
+	void EnterRift(ASQCharacter* Reaper);
+	/** Everyone is in: the next map is built below, augment picks, floating chests, the fall */
+	void BeginPassage();
+	void TickSoulPassage(ASQGameState* GS, const USQData* D, float DeltaSeconds);
+	/** The passage ends: land on the next map and start its stage (level, items, gold carry over) */
+	void StartNextStage();
+	/** After the last stage's boss: the endless horde until the crew wipes */
+	void BeginEndless();
+	void TickEndless(ASQGameState* GS, const USQData* D, float DeltaSeconds);
+	/** Team kills this run (sum of every reaper's kills) */
+	int32 SumKills(const ASQGameState* GS) const;
+	FVector PassageSpot() const;
+	TWeakObjectPtr<class ASQSoulRift> RiftActor;
+	TWeakObjectPtr<class ASQSoulRift> PassageActor;
+	TArray<TWeakObjectPtr<ASQCharacter>> RiftEntered;
+	float RiftBotTimer = 0.f;
+	float EndlessLanternTimer = 0.f;
+	float EndlessEliteTimer = 0.f;
+	float EndlessMinibossTimer = 0.f;
+	int32 EndlessKillBase = 0;
+	int32 EndlessLanternIdx = 0;
+
 	float WaitTimer = 3.f;
 	/** RetryRun: the next start keeps bSkipLobby even with several humans */
 	bool bRetryStart = false;

@@ -456,6 +456,12 @@ protected:
 	float LastHealthSeen = 100.f;
 
 	void ApplyVisuals();
+	/** Nov 25 2026: the skin last applied (ASQPlayerState::SkinId) */
+	FName AppliedSkinId;
+public:
+	/** Re-applies the look when the owner's skin changed (ASQPlayerState::OnRep_SkinId) */
+	void RefreshSkinLook();
+protected:
 	void ApplySpeed();
 	void UpdateLocalVisuals(float DeltaSeconds);
 	void DoDash(const FVector& Direction);

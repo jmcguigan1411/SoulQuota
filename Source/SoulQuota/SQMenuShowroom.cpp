@@ -22,6 +22,8 @@
 #include "SQFx.h"
 #include "SQAnimInstance.h"
 #include "SQFxTheme.h"
+#include "SQQuests.h"
+#include "SQSave.h"
 
 namespace
 {
@@ -593,17 +595,19 @@ void ASQMenuShowroom::ShowReaper(FName ReaperId)
 		Anim->SetLocomotion(0.f, FVector::ZeroVector, 0.f, false, false, 0);
 	}
 	const FLinearColor Tint = SQArt::SoftTint(Colour, 0.7f);
+	// Nov 25 2026: the reaper wears its skin here too (the SKINS page previews the focused one)
+	UTexture* ShowTex = ShownTexture(Model);
 	if (!ReaperMID)
 	{
-		ReaperMID = SQArt::TintMID(this, SQArt::CharacterTexture(Model), Tint);
+		ReaperMID = SQArt::TintMID(this, ShowTex, Tint);
 	}
 	else
 	{
 		ReaperMID->SetVectorParameterValue(TEXT("Color"), Tint);
-		if (UTexture* ShowTex = SQArt::CharacterTexture(Model)) ReaperMID->SetTextureParameterValue(TEXT("Tex"), ShowTex);
+		if (ShowTex) ReaperMID->SetTextureParameterValue(TEXT("Tex"), ShowTex);
 	}
 	SQArt::SetAllMaterials(ReaperMesh, ReaperMID);
-	SQArt::ApplyGlowSlots(ReaperMesh, this, SQArt::CharacterTexture(Model));
+	SQArt::ApplyGlowSlots(ReaperMesh, this, ShowTex);
 	ReaperMesh->SetVisibility(true);
 
 	// the reaper's weapon in the right hand
@@ -760,7 +764,8 @@ void ASQMenuShowroom::Tick(float DeltaSeconds)
 		// the reaper's own flourish / bank / victory beat, generic fidgets only as a fallback
 		const FString IdStr = ShownReaper.ToString();
 		const int32 Pick = FMath::RandRange(0, 2);
-		const FName Own(*FString::Printf(Pick == 0 ? TEXT("SQ_Flourish_%s") : Pick == 1 ? TEXT("SQ_Bank_%s") : TEXT("SQ_Sig_%s"), *IdStr));
+		const TCHAR* Beat = Pick == 0 ? TEXT("Flourish") : Pick == 1 ? TEXT("Bank") : TEXT("Sig");
+		const FName Own(*FString::Printf(TEXT("SQ_%s_%s"), Beat, *IdStr));
 		PlayOnceNamed({ Own, FName(*FString::Printf(TEXT("SQ_Flourish_%s"), *IdStr)), FName(TEXT("Idle_B")), FName(TEXT("Taunt")) });
 	}
 
@@ -837,4 +842,29 @@ void ASQMenuShowroom::Tick(float DeltaSeconds)
 			WispLights[i]->SetRelativeLocation(At);
 		}
 	}
+}
+
+// ---------------------------------------------------------------- Nov 25 2026 skins
+
+UTexture* ASQMenuShowroom::ShownTexture(FName Model) const
+{
+	FName Skin = SkinPreview;
+	if (Skin.IsNone()) Skin = SQQuests::EquippedSkin(USQSaveGame::Load(), ShownReaper);
+	if (Skin == TEXT("Standard")) Skin = NAME_None;
+	const FSQCosmeticDef* Cos = Skin.IsNone() ? nullptr : SQQuests::FindCosmetic(Skin);
+	if (Cos && Cos->Reaper == ShownReaper)
+	{
+		if (UTexture* Bought = SQArt::SkinTexture(Model, Cos->Tex)) return Bought;
+	}
+	return SQArt::CharacterTexture(Model);
+}
+
+void ASQMenuShowroom::SetSkinPreview(FName SkinId)
+{
+	if (SkinPreview == SkinId) return;
+	SkinPreview = SkinId;
+	if (!ReaperMID || ShownModel.IsNone()) return;
+	UTexture* ShowTex = ShownTexture(ShownModel);
+	if (ShowTex) ReaperMID->SetTextureParameterValue(TEXT("Tex"), ShowTex);
+	SQArt::ApplyGlowSlots(ReaperMesh, this, ShowTex);
 }

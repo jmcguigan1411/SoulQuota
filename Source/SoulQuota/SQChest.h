@@ -65,4 +65,6 @@ protected:
 	float LookTime = 0.f;
 	bool bLookApplied = false;
 	bool bLookFree = false;
+	/** Nov 25 2026: the imported bone chest (SM_Chest_Bone + SM_Chest_BoneLid) is in use; false = the primitive stand-in */
+	bool bBoneModel = false;
 };
